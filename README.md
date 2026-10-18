@@ -39,7 +39,7 @@ Keyboard: **Space** play/pause, **Home** back to the start.
 
 The GitHub workflow builds the Windows app: it runs the engine tests, builds the `.exe`
 with PyInstaller (bundling ffmpeg with Rubber Band), starts the app and clicks through every
-control, then zips it. Pushing a tag like `v1.0.1` publishes a release.
+control, then zips it. Raising the number in `VERSION` publishes a new release.
 
 Local run (needs Python 3.12 and ffmpeg on PATH):
 
