@@ -162,6 +162,30 @@ def main(out_dir=None):
     p.playing = False
     ok("slider change is heard at once, high-quality render takes over at the same spot")
 
+    # varispeed for tiny fine-tuning (|cents| <= 4, speed 1.0, no semitones): lossless resampling
+    assert engine.varispeed_applies(1.0, 0, 4) and engine.varispeed_applies(1.0, 0, -3)
+    assert not engine.varispeed_applies(1.0, 0, 4.5) and not engine.varispeed_applies(0.9, 0, 3)
+    assert not engine.varispeed_applies(1.0, -2, 3) and not engine.varispeed_applies(1.0, 0, 0)
+    vs, vst = engine.varispeed_params(4)
+    vr = engine.render(tracks[1].orig, vs, vst, varispeed=True)
+    assert abs(len(tracks[1].orig) / len(vr) - vs) < 1e-3, (len(vr), vs)
+    def fine_freq(x):  # parabolic peak interpolation inside the first note
+        x = x[:, 0][:32000] * np.hanning(32000)
+        spec = np.abs(np.fft.rfft(x, 1 << 18))
+        k = int(np.argmax(spec))
+        a, b, c = np.log(spec[k - 1:k + 2] + 1e-12)
+        return (k + 0.5 * (a - c) / (a - 2 * b + c)) * SR / (1 << 18)
+    f0, f2 = fine_freq(tracks[1].orig), fine_freq(vr)
+    assert abs(f2 / f0 - vs) < 0.0004, (f0, f2, vs)
+    p.set_stretch(vs, vst, varispeed=True)
+    for _ in range(300):
+        if p.ready():
+            break
+        time.sleep(0.05)
+    assert p.ready() and all(tr.buf_key == (round(vs, 6), round(vst, 6), True) for tr in tracks)
+    assert abs(p.live.speed / p.live.ratio - 1.0) < 1e-9   # live preview: no stretching, just resampling
+    ok(f"varispeed +4 ct: pitch x{f2 / f0:.5f}, length x{len(vr) / len(tracks[1].orig):.5f}")
+
     # loop area: playback stays inside it, with 2-second fades at both ends
     for tr in tracks:
         tr.mute = False
@@ -200,6 +224,9 @@ def main(out_dir=None):
     y = engine.decode(w[0])
     assert float(np.abs(y[:200]).max()) < 0.02 and float(np.abs(y[-200:]).max()) < 0.02
     assert engine.region_tag(SR * 42, SR * 73) == "_0m42-1m13"
+    w = engine.export(tracks, p.gains(), 1.0, vs, vst, "mix", "WAV", out / "vari.wav", varispeed=True)
+    vsecs = engine.probe_seconds(w[0])
+    assert abs(vsecs - 6.0 / vs) < 0.01, vsecs
     ok(f"export only the loop area: {secs:.2f} s with fades")
 
     # export: mix + each track, all formats

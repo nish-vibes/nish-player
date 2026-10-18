@@ -162,7 +162,7 @@ def run(app, out_dir):
         app.on_speed(0.85)
         app.pitch_slider.set(-2)
         app.on_pitch(-2)
-        assert app.player.key() == (0.85, -2.0), app.player.key()  # heard at once (live)
+        assert app.player.key() == (0.85, -2.0, False), app.player.key()  # heard at once (live)
         app.player.playing = True
         app.player.render_block(1024)
         assert app.player.mode == "live"
@@ -181,7 +181,7 @@ def run(app, out_dir):
             "spinner should disappear when done"
         yield 0.5
         t0 = time.time()
-        while app.player.render_busy or any(t.buf_key != (0.85, -2.0) for t in app.player.tracks):
+        while app.player.render_busy or any(t.buf_key != (0.85, -2.0, False) for t in app.player.tracks):
             assert time.time() - t0 < 90, "speed/pitch render timed out"
             yield 0.2
         n0 = app.player.source_length()
@@ -310,8 +310,68 @@ def run(app, out_dir):
         assert app.speed == 1.0 and app.semis == 0 and app.manual_cents == 0, (app.speed, app.semis,
                                                                                app.manual_cents)
         assert lane.track.volume == 1.0 and abs(app.fader.pos - 0.8) < 1e-6
-        assert app.player.key() == (1.0, 0.0)
+        assert app.player.key() == (1.0, 0.0, False)
         log("ok: Ctrl+click resets speed, pitch, fine tune, track volume and master")
+
+        # varispeed: fine-tuning of 4 cents or less (speed 1.0, pitch 0) is done by resampling
+        app.fine_slider.set(3)
+        app.on_fine(3)
+        yield 0.2
+        assert app.player.varispeed and app.vari_chip.winfo_ismapped(), "varispeed should be on at +3 ct"
+        app.fine_slider.set(5)
+        app.on_fine(5)
+        yield 0.2
+        assert not app.player.varispeed and not app.vari_chip.winfo_ismapped(), "5 ct uses Rubber Band"
+        app.fine_slider.set(-4)
+        app.on_fine(-4)
+        yield 0.2
+        assert app.player.varispeed
+        app.open_export()
+        yield 0.6
+        d = app.export_dialog
+        assert d.vari_params and d.vari_var.get()
+        d.folder = str(out / "export-vari")
+        d.fmt.set("WAV")
+        d.mode.set("mix")
+        d.refresh()
+        d.start()
+        while d.busy:
+            yield 0.2
+        sv = engine.probe_seconds(d.written[0])
+        d.vari_var.set(False)
+        d.start()
+        while d.busy:
+            yield 0.2
+        sr_ = engine.probe_seconds(d.written[0])
+        d.close()
+        n_sec = app.player.source_length() / engine.SR
+        assert abs(sr_ - n_sec) < 0.02 and sv > sr_ + 0.005, (sv, sr_, n_sec)
+        log(f"ok: ≤4 ct uses varispeed (live + export {sv:.3f} s), unticked = Rubber Band ({sr_:.3f} s); "
+            "5 ct uses Rubber Band")
+        app.fine_slider.set(0)
+        app.on_fine(0)
+        # Auto 440 dead zone: within ±4 cents it is left as is, with an offer to use varispeed
+        app.auto_var.set(True)
+        app.on_auto()
+        yield 0.1
+        app._analysis_gen += 1
+        app.analysing = True
+        app.events.put(("analysed", app._analysis_gen, (3.0, 439.24, 0.95)))
+        yield 0.4
+        assert app.in_dead_zone() and app.current_cents() == 0 and not app.player.varispeed
+        assert app.fine_info.cget("text").strip() == "Track is tuned to A = 439.2 Hz", app.fine_info.cget("text")
+        assert app.vari_btn.winfo_ismapped() and "varispeed" in app.vari_btn.cget("text")
+        shot("4b-deadzone")
+        app.vari_btn.invoke()
+        yield 0.3
+        assert app.current_cents() == 3.0 and app.player.varispeed
+        assert "Varispeed" in app.fine_info.cget("text")
+        app.vari_btn.invoke()
+        yield 0.2
+        assert app.current_cents() == 0 and not app.player.varispeed
+        app.auto_var.set(False)
+        app.on_auto()
+        log("ok: Auto 440 dead zone (±4 ct): 'Track is tuned to A = 439.2 Hz' + 'Use varispeed' button")
 
         # loop area: drag on the timeline, loop button, export only the area, clear with ×
         rc = app.ruler

@@ -101,8 +101,28 @@ def atempo_chain(t):
     return [f"atempo={p:.6f}" for p in parts]
 
 
-def stretch_filter(speed, semitones, vocal=False):
+VARISPEED_MAX = 4.0  # cents: fine-tuning this small uses varispeed (and is Auto 440's dead zone)
+
+
+def varispeed_applies(speed, semis, cents):
+    """Only fine-tuning, and at most ±4 cents: done like a turntable (lossless resampling)."""
+    return abs(speed - 1.0) < 1e-6 and not semis and 0 < abs(cents) <= VARISPEED_MAX + 1e-9
+
+
+def varispeed_params(cents):
+    """(speed, semitones) for varispeed: pitch and tempo move together by the same tiny ratio."""
+    return 2 ** (cents / 1200.0), cents / 100.0
+
+
+def varispeed_filter(semitones):
+    ratio = 2 ** (float(semitones) / 12)
+    return f"asetrate={SR * ratio:.4f},aresample={SR}:resampler=soxr:precision=28"
+
+
+def stretch_filter(speed, semitones, vocal=False, varispeed=False):
     """ffmpeg filter for speed + pitch (semitones may be fractional). None = unchanged."""
+    if varispeed:
+        return varispeed_filter(semitones) if abs(float(semitones)) > 1e-6 else None
     speed, semitones = float(speed), float(semitones)
     if abs(speed - 1.0) < 1e-6 and abs(semitones) < 1e-4:
         return None
@@ -117,9 +137,9 @@ def stretch_filter(speed, semitones, vocal=False):
     return ",".join(chain + atempo_chain(speed / ratio))
 
 
-def render(audio, speed, semitones, vocal=False):
+def render(audio, speed, semitones, vocal=False, varispeed=False):
     """Speed/pitch-process a decoded (frames, 2) array. Returns a new array."""
-    filt = stretch_filter(speed, semitones, vocal)
+    filt = stretch_filter(speed, semitones, vocal, varispeed)
     if filt is None:
         return audio
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-f", "f32le", "-ar", str(SR),
@@ -243,7 +263,7 @@ class Track:
         self.mute = False
         self.solo = False
         self.buf = audio       # what is playing (rendered or original)
-        self.buf_key = (1.0, 0.0)
+        self.buf_key = (1.0, 0.0, False)
 
     @property
     def vocal(self):
@@ -268,12 +288,12 @@ def region_gain(p, a, b, fade=LOOP_FADE):
     return g.astype(np.float32)
 
 
-def render_part(audio, a, b, speed, semitones, vocal=False):
+def render_part(audio, a, b, speed, semitones, vocal=False, varispeed=False):
     """Speed/pitch-process only source samples a..b (with a little context on both sides)."""
     a, b = int(a), int(b)
     pad = SR
     s0, e0 = max(0, a - pad), min(len(audio), b + pad)
-    r = render(audio[s0:e0], speed, semitones, vocal)
+    r = render(audio[s0:e0], speed, semitones, vocal, varispeed)
     off, n = int(round((a - s0) / speed)), int(round((b - a) / speed))
     seg = r[off:off + n]
     if len(seg) < n:
@@ -369,6 +389,7 @@ class Player:
         self.master = 1.0       # linear master gain
         self.speed = 1.0
         self.semitones = 0.0    # total pitch in semitones (coarse + cents/100)
+        self.varispeed = False  # tiny fine-tuning done by resampling instead of Rubber Band
         self.clip = False       # latched until cleared
         self._limit_gain = 1.0
         self._meter = np.zeros(2, np.float32)
@@ -479,17 +500,19 @@ class Player:
 
     # --- speed / pitch ---
     def key(self):
-        return (round(self.speed, 6), round(self.semitones, 6))
+        return (round(self.speed, 6), round(self.semitones, 6), self.varispeed)
 
-    def set_live(self, speed, semitones):
-        """Change speed/pitch now (heard immediately through the real-time stretcher)."""
+    def set_live(self, speed, semitones, varispeed=False):
+        """Change speed/pitch now (heard immediately through the real-time stretcher).
+        varispeed: speed and pitch move together (speed must be 2^(semitones/12))."""
         with self.lock:
             self.speed, self.semitones = float(speed), float(semitones)
+            self.varispeed = bool(varispeed)
             self.live.set_params(self.speed, self.semitones)
 
-    def set_stretch(self, speed, semitones):
+    def set_stretch(self, speed, semitones, varispeed=False):
         """Change speed/pitch and start the high-quality render."""
-        self.set_live(speed, semitones)
+        self.set_live(speed, semitones, varispeed)
         self.request_render()
 
     def request_render(self):
@@ -506,7 +529,7 @@ class Player:
             try:
                 self.render_error = None
                 results = list(self._pool.map(
-                    lambda t: (t, render(t.orig, key[0], key[1], t.vocal)), todo))
+                    lambda t: (t, render(t.orig, key[0], key[1], t.vocal, key[2])), todo))
                 with self.lock:
                     if gen != self._gen:
                         return  # settings changed again; a newer render is coming
@@ -677,7 +700,7 @@ def unique_path(p):
 
 
 def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=lambda f: None,
-           name_tags=(), region=None, fade=LOOP_FADE):
+           name_tags=(), region=None, fade=LOOP_FADE, varispeed=False):
     """mode 'mix': dest is the output file. mode 'each': dest is a folder.
     Renders from the original audio at full quality. Returns the written paths."""
     ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3", "OPUS": ".opus"}[fmt]
@@ -685,9 +708,9 @@ def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=la
 
     def piece(t):
         if region is None:
-            return render(t.orig, speed, semitones, t.vocal)
+            return render(t.orig, speed, semitones, t.vocal, varispeed)
         a, b = region
-        seg = render_part(t.orig, a, b, speed, semitones, t.vocal)
+        seg = render_part(t.orig, a, b, speed, semitones, t.vocal, varispeed)
         p = a + np.arange(len(seg)) * speed
         return seg * region_gain(p, a, b, fade)[:, None]
 
