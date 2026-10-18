@@ -31,7 +31,9 @@ def fmt_time(seconds):
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
-def cents_text(c):
+def cents_text(c, decimals=0):
+    if decimals and abs(c) >= 0.05:
+        return f"{c:+.{decimals}f} ct".replace("-", "−")
     r = int(math.floor(abs(c) + 0.5)) * (1 if c >= 0 else -1)
     return f"{r:+d} ct".replace("-", "−") if r else "0 ct"
 

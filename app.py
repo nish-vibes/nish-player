@@ -681,7 +681,7 @@ class App:
                                    fg_color="#23362e" if auto else BORDER2,
                                    state="disabled" if auto else "normal")
         cents = self.current_cents()
-        self.fine_val.configure(text=cents_text(cents),
+        self.fine_val.configure(text=cents_text(cents, 1 if (auto and self.in_dead_zone()) else 0),
                                 text_color=GREEN if auto else ACCENT_SOFT)
         self._style_vari()
         dead = auto and self.in_dead_zone()
@@ -702,7 +702,7 @@ class App:
             else:
                 self.fine_info.configure(text=f"  Track is tuned to A = {a:.1f} Hz", text_color=GREEN_TXT,
                                          image=icon("check", GREEN, 13))
-                self.vari_btn.configure(text=f"Use varispeed ({cents_text(self.auto_result[0])})")
+                self.vari_btn.configure(text=f"Use varispeed ({cents_text(self.auto_result[0], 1)})")
             self.vari_btn.pack(anchor="w", padx=16, pady=(0, 12))
             return
         if self.analysing:

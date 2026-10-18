@@ -356,15 +356,17 @@ def run(app, out_dir):
         yield 0.1
         app._analysis_gen += 1
         app.analysing = True
-        app.events.put(("analysed", app._analysis_gen, (3.0, 439.24, 0.95)))
+        app.events.put(("analysed", app._analysis_gen, (3.0, 439.24, 0.95)))  # A=439.24 -> +3.0 ct
         yield 0.4
         assert app.in_dead_zone() and app.current_cents() == 0 and not app.player.varispeed
         assert app.fine_info.cget("text").strip() == "Track is tuned to A = 439.2 Hz", app.fine_info.cget("text")
         assert app.vari_btn.winfo_ismapped() and "varispeed" in app.vari_btn.cget("text")
         shot("4b-deadzone")
+        assert app.vari_btn.cget("text") == "Use varispeed (+3.0 ct)", app.vari_btn.cget("text")
         app.vari_btn.invoke()
         yield 0.3
         assert app.current_cents() == 3.0 and app.player.varispeed
+        assert app.fine_val.cget("text") == "+3.0 ct", app.fine_val.cget("text")
         assert "Varispeed" in app.fine_info.cget("text")
         app.vari_btn.invoke()
         yield 0.2
