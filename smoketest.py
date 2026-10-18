@@ -317,11 +317,12 @@ def run(app, out_dir):
         app.fine_slider.set(3)
         app.on_fine(3)
         yield 0.2
-        assert app.player.varispeed and app.vari_chip.winfo_ismapped(), "varispeed should be on at +3 ct"
+        assert app.player.varispeed, "varispeed should be on at +3 ct"
+        assert "VARISPEED" in app.fine_mid.cget("text") and app.fine_mid.winfo_ismapped()
         app.fine_slider.set(5)
         app.on_fine(5)
         yield 0.2
-        assert not app.player.varispeed and not app.vari_chip.winfo_ismapped(), "5 ct uses Rubber Band"
+        assert not app.player.varispeed and app.fine_mid.cget("text") == "0", "5 ct uses Rubber Band"
         app.fine_slider.set(-4)
         app.on_fine(-4)
         yield 0.2

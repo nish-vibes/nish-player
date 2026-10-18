@@ -585,8 +585,7 @@ class App:
         ctk.CTkLabel(top, text="Fine-tuning", font=font(14, "bold"), text_color=TEXT).pack(side="left")
         self.fine_val = ctk.CTkLabel(top, text="0 ct", font=font(13, "bold", True), anchor="w")
         self.fine_val.pack(side="left", padx=(10, 0))
-        self.vari_chip = ctk.CTkLabel(top, text=" VARISPEED ", font=font(9, "bold"), text_color=ACCENT_SOFT,
-                                      fg_color="#22304a", corner_radius=4, height=18)
+
         ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color="#3a3220",
                      corner_radius=4, height=18).pack(side="right")
         self.auto_var = tk.BooleanVar(value=False)
@@ -603,7 +602,13 @@ class App:
         self.ctrl_reset(self.speed_slider, 1.0, self.on_speed)
         self.ctrl_reset(self.pitch_slider, 0, self.on_pitch)
         self.ctrl_reset(self.fine_slider, 0, self.on_fine)
-        self.fine_scale = self._marks(fc, ("−50 ct", "0", "+50 ct"))
+        self.fine_scale = sc = ctk.CTkFrame(fc, fg_color="transparent")
+        ctk.CTkLabel(sc, text="−50 ct", font=font(11, mono=True), text_color=DIM, height=20).pack(side="left")
+        ctk.CTkLabel(sc, text="+50 ct", font=font(11, mono=True), text_color=DIM, height=20).pack(side="right")
+        # the middle mark doubles as the VARISPEED tag (there is no room for it in the title row)
+        self.fine_mid = ctk.CTkLabel(sc, text="0", font=font(11, mono=True), text_color=DIM, height=20,
+                                     corner_radius=4)
+        self.fine_mid.pack(side="left", expand=True)
         self.fine_info = ctk.CTkLabel(fc, text="", font=font(12), anchor="w", height=20, compound="left")
         self.vari_btn = ctk.CTkButton(fc, text="", height=28, corner_radius=6, font=font(12),
                                       fg_color="transparent", hover_color="#1c2d26", border_width=1,
@@ -1090,12 +1095,13 @@ class App:
         self._live(0)
 
     def _style_vari(self):
-        """Small VARISPEED tag next to the fine-tuning value while varispeed is in use."""
+        """While varispeed is in use, the middle of the fine-tuning scale says VARISPEED."""
         on = self.stretch_params()[2]
-        if on and not self.vari_chip.winfo_ismapped():
-            self.vari_chip.pack(side="left", padx=(8, 0))
-        elif not on and self.vari_chip.winfo_ismapped():
-            self.vari_chip.pack_forget()
+        if on:
+            self.fine_mid.configure(text=" VARISPEED ", font=font(9, "bold"), text_color=ACCENT_SOFT,
+                                    fg_color="#22304a")
+        else:
+            self.fine_mid.configure(text="0", font=font(11, mono=True), text_color=DIM, fg_color="transparent")
 
     def start_analysis(self):
         self.auto_result = None
