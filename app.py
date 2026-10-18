@@ -49,41 +49,50 @@ class Lane:
         self.frame = ctk.CTkFrame(parent, fg_color=PANEL, corner_radius=0, border_width=0)
         self.frame.grid_columnconfigure(1, weight=1)
 
-        head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=HEAD_W, height=92)
+        head = self.head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=HEAD_W, height=92)
         head.grid(row=0, column=0, sticky="nsw")
         head.grid_propagate(False)
-        head.grid_columnconfigure(1, weight=1)
+        head.grid_columnconfigure(2, weight=1)
+        self.stripe = ctk.CTkFrame(head, fg_color=ACCENT, width=3, corner_radius=0)
+        self.grip = ctk.CTkLabel(head, text="", image=icon("grip", "#5a616b", 14), width=18, cursor="fleur")
+        self.grip.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(6, 0))
+        self.grip.bind("<Button-1>", lambda e: self.app.drag_start(self, e))
+        self.grip.bind("<B1-Motion>", lambda e: self.app.drag_move(self, e))
+        self.grip.bind("<ButtonRelease-1>", lambda e: self.app.drag_end(self, e))
         sep = ctk.CTkFrame(self.frame, fg_color=BORDER, width=1, height=1, corner_radius=0)
         sep.grid(row=0, column=0, sticky="nse")
 
-        ctk.CTkLabel(head, text="", image=icon("dot", self.color, 12), width=14).grid(
-            row=0, column=0, padx=(14, 4), pady=(10, 0), sticky="w")
+        self.dot = ctk.CTkLabel(head, text="", image=icon("dot", self.color, 12), width=14)
+        self.dot.grid(row=0, column=1, padx=(2, 4), pady=(10, 0), sticky="w")
         self.name_var = tk.StringVar(value=track.label)
         self.name = ctk.CTkEntry(head, textvariable=self.name_var, font=font(13, "bold"), height=28,
                                  fg_color=LANE_BG, border_width=1, border_color=LANE_BG,
                                  text_color=TEXT, corner_radius=6)
-        self.name.grid(row=0, column=1, sticky="ew", pady=(8, 0))
-        self.name.bind("<FocusIn>", lambda e: self.name.configure(border_color=ACCENT, fg_color="#0f1114"))
+        self.name.grid(row=0, column=2, sticky="ew", pady=(8, 0))
+        self.name.bind("<FocusIn>", lambda e: (self.app.select(self),
+                                               self.name.configure(border_color=ACCENT, fg_color="#0f1114")))
         self.name.bind("<FocusOut>", lambda e: self._commit_name())
         self.name.bind("<Return>", lambda e: self.app.root.focus_set())
         self.name.bind("<Escape>", lambda e: (self.name_var.set(self.track.label), self.app.root.focus_set()))
         ctk.CTkLabel(head, text="", image=icon("pencil", DIM, 12), width=14).grid(
-            row=0, column=2, padx=(2, 6), pady=(8, 0))
+            row=0, column=3, padx=(2, 6), pady=(8, 0))
         self.mute_btn = ctk.CTkButton(head, text="M", width=30, height=28, corner_radius=6,
                                       font=font(12, "bold", True), command=self.toggle_mute)
-        self.mute_btn.grid(row=0, column=3, padx=(0, 4), pady=(8, 0))
+        self.mute_btn.grid(row=0, column=4, padx=(0, 4), pady=(8, 0))
         self.solo_btn = ctk.CTkButton(head, text="S", width=30, height=28, corner_radius=6,
                                       font=font(12, "bold", True), command=self.toggle_solo)
-        self.solo_btn.grid(row=0, column=4, padx=(0, 4), pady=(8, 0))
+        self.solo_btn.grid(row=0, column=5, padx=(0, 4), pady=(8, 0))
+        self.solo_btn.bind("<Control-Button-1>", lambda e: (self.app.solo_only(self), "break")[1])
         self.remove_btn = ctk.CTkButton(head, text="", image=icon("close", DIM, 11), width=24, height=28, corner_radius=6,
                                         fg_color="transparent", hover_color=BTN_HOVER, text_color=DIM,
                                         font=font(12), command=lambda: self.app.remove_lane(self))
-        self.remove_btn.grid(row=0, column=5, padx=(0, 10), pady=(8, 0))
+        self.remove_btn.grid(row=0, column=6, padx=(0, 10), pady=(8, 0))
 
-        ctk.CTkLabel(head, text=Path(track.path).name, text_color="#7d848e", font=font(11, mono=True),
-                     anchor="w", height=20).grid(row=1, column=0, columnspan=6, sticky="ew", padx=(16, 12))
-        volrow = ctk.CTkFrame(head, fg_color="transparent")
-        volrow.grid(row=2, column=0, columnspan=6, sticky="ew", padx=(16, 12), pady=(0, 6))
+        self.file_lbl = ctk.CTkLabel(head, text=Path(track.path).name, text_color="#7d848e",
+                                     font=font(11, mono=True), anchor="w", height=20)
+        self.file_lbl.grid(row=1, column=1, columnspan=6, sticky="ew", padx=(4, 12))
+        volrow = self.volrow = ctk.CTkFrame(head, fg_color="transparent")
+        volrow.grid(row=2, column=1, columnspan=6, sticky="ew", padx=(4, 12), pady=(0, 6))
         volrow.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(volrow, text="Vol", text_color=MUTED, font=font(12), width=28, height=22, anchor="w").grid(
             row=0, column=0)
@@ -100,7 +109,10 @@ class Lane:
         self.canvas = tk.Canvas(self.frame, height=92, bg=PANEL, highlightthickness=0, cursor="hand2")
         self.canvas.grid(row=0, column=1, sticky="nsew")
         self.canvas.bind("<Configure>", lambda e: self.draw())
-        self.canvas.bind("<Button-1>", self._seek)
+        self.canvas.bind("<Button-1>", lambda e: (self.app.select(self), self._seek(e)))
+        for w in (head, self.dot, self.file_lbl, volrow):
+            w.bind("<Button-1>", lambda e: self.app.select(self))
+        self.selected = False
         self.canvas.bind("<B1-Motion>", self._seek)
         self.line = ctk.CTkFrame(self.frame, fg_color=BORDER, height=1, corner_radius=0)
         self.line.grid(row=1, column=0, columnspan=2, sticky="ew")
@@ -112,7 +124,8 @@ class Lane:
 
     # --- controls ---
     def _commit_name(self):
-        self.name.configure(border_color=LANE_BG, fg_color=LANE_BG)
+        bg = "#1a2030" if self.selected else LANE_BG
+        self.name.configure(border_color=bg, fg_color=bg)
         text = self.name_var.get().strip()
         if not text:
             text = engine.guess_label(self.track.path)
@@ -132,6 +145,20 @@ class Lane:
     def on_volume(self, v):
         self.track.volume = float(v) / 100.0
         self.vol_lbl.configure(text=f"{int(round(v))}%")
+
+    def set_selected(self, on):
+        if on == self.selected:
+            return
+        self.selected = on
+        bg = "#1a2030" if on else LANE_BG
+        self.head.configure(fg_color=bg)
+        if self.app.root.focus_get() is not self.name._entry:
+            self.name.configure(fg_color=bg, border_color=bg)
+        if on:
+            self.stripe.place(x=0, y=0, relheight=1)
+        else:
+            self.stripe.place_forget()
+        self.canvas.configure(bg="#171c26" if on else PANEL)
 
     def refresh_buttons(self):
         for btn, on, cols in ((self.mute_btn, self.track.mute, MUTE_ON),
@@ -332,6 +359,8 @@ class App:
         self.export_dialog = None
         self.yt_job = None
         self.yt_pop = None
+        self.selected = None
+        self._drag = None
         self._yt_status = None
         self.last_dir = str(Path.home() / "Music")
         self.dnd = TkinterDnD is not None
@@ -374,6 +403,11 @@ class App:
                 traceback.print_exc()
             self._draw_drop()
         root.bind_all("<space>", self._on_space)
+        for k in ("s", "S"):
+            root.bind_all(f"<KeyPress-{k}>", lambda e: self._selected_key(Lane.toggle_solo))
+            root.bind_all(f"<Control-{k}>", lambda e: self._selected_key(self.solo_only))
+        for k in ("m", "M"):
+            root.bind_all(f"<KeyPress-{k}>", lambda e: self._selected_key(Lane.toggle_mute))
         root.bind_all("<Home>", lambda e: None if self._typing() else self.seek(0))
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh_all()
@@ -678,12 +712,74 @@ class App:
         lane = Lane(self, self.lanes_box, track, TRACK_COLORS[len(self.lanes) % len(TRACK_COLORS)])
         self.lanes.append(lane)
         self.player.add(track)
+        if self.selected is None:
+            self.select(lane)
         self.refresh_all()
         if self.auto:
             self.start_analysis()
         self._update_busy()
 
+    # ----- selection, exclusive solo, reordering -----
+    def select(self, lane):
+        if self.selected is lane:
+            return
+        if self.selected is not None and self.selected in self.lanes:
+            self.selected.set_selected(False)
+        self.selected = lane
+        if lane is not None:
+            lane.set_selected(True)
+
+    def solo_only(self, lane):
+        """Solo just this track (Ctrl+click on S, or Ctrl+S). Again on the only solo turns it off."""
+        self.select(lane)
+        only = lane.track.solo and not any(l.track.solo for l in self.lanes if l is not lane)
+        for l in self.lanes:
+            l.track.solo = (l is lane) and not only
+        self.refresh_lanes()
+
+    def drag_start(self, lane, e):
+        self.select(lane)
+        self._drag = lane
+        lane.grip.configure(image=icon("grip", ACCENT, 14))
+
+    def drag_move(self, lane, e):
+        if self._drag is not lane:
+            return
+        y = e.y_root
+        i = self.lanes.index(lane)
+        target = i
+        for j, other in enumerate(self.lanes):
+            top = other.frame.winfo_rooty()
+            mid = top + other.frame.winfo_height() / 2
+            if j < i and y < mid:
+                target = j
+                break
+            if j > i and y > mid:
+                target = j
+        if target != i:
+            self.move_lane(lane, target)
+
+    def drag_end(self, lane, e):
+        self._drag = None
+        lane.grip.configure(image=icon("grip", "#5a616b", 14))
+
+    def move_lane(self, lane, index):
+        self.lanes.remove(lane)
+        self.lanes.insert(index, lane)
+        with self.player.lock:
+            self.player.tracks = [l.track for l in self.lanes]
+        for i, l in enumerate(self.lanes):
+            l.frame.grid(row=i, column=0, sticky="ew")
+
+    def _selected_key(self, action):
+        if self._typing() or self.selected is None or self.selected not in self.lanes:
+            return None
+        action(self.selected)
+        return "break"
+
     def remove_lane(self, lane):
+        if self.selected is lane:
+            self.selected = None
         self.player.remove(lane.track)
         lane.destroy()
         self.lanes.remove(lane)
@@ -693,6 +789,7 @@ class App:
 
     def clear_all(self):
         self.player.clear()
+        self.selected = None
         for lane in self.lanes:
             lane.destroy()
         self.lanes = []

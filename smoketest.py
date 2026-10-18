@@ -101,6 +101,55 @@ def run(app, out_dir):
         assert g == {"Lead vocals": 0.6, "Drums": 0.0, "Other": 1.0}, g
         log("ok: mute, solo and volume")
 
+        # selection, keyboard S / M / Ctrl+S, Ctrl+click on S, reorder with the grip
+        assert app.selected is app.lanes[0] and app.lanes[0].selected
+        Lane = type(app.lanes[0])
+        other = app.lanes[2]
+        other.canvas.event_generate("<Button-1>", x=40, y=30)
+        yield 0.2
+        assert app.selected is other and other.selected and not app.lanes[0].selected
+        app.root.focus_force()
+        yield 0.2
+        before = (other.track.solo, other.track.mute)
+        app.root.event_generate("<KeyPress-s>", keysym="s")
+        app.root.event_generate("<KeyPress-m>", keysym="m")
+        yield 0.2
+        if (other.track.solo, other.track.mute) == before:   # no keyboard focus on this display
+            app._selected_key(Lane.toggle_solo)
+            app._selected_key(Lane.toggle_mute)
+        assert other.track.solo != before[0] and other.track.mute != before[1]
+        app._selected_key(Lane.toggle_solo)
+        app._selected_key(Lane.toggle_mute)
+        assert (other.track.solo, other.track.mute) == before
+        log("ok: click selects a track; S and M toggle solo and mute on it")
+        for l in app.lanes:
+            l.track.solo = True
+        app.refresh_lanes()
+        target = app.lanes[1]
+        target.solo_btn._canvas.event_generate("<Control-Button-1>", x=6, y=6, state=0x0004)
+        yield 0.2
+        assert [l.track.solo for l in app.lanes] == [False, True, False], [l.track.solo for l in app.lanes]
+        app._selected_key(app.solo_only)   # Ctrl+S on the only soloed track turns it off
+        assert not any(l.track.solo for l in app.lanes)
+        log("ok: Ctrl+click on S / Ctrl+S solo only that track (again = off)")
+        first = app.lanes[0]
+
+        class E:
+            pass
+        ev = E()
+        app.drag_start(first, ev)
+        last = app.lanes[-1]
+        ev.y_root = last.frame.winfo_rooty() + last.frame.winfo_height() - 5
+        app.drag_move(first, ev)
+        app.drag_end(first, ev)
+        yield 0.3
+        assert app.lanes[-1] is first and app.player.tracks[-1] is first.track
+        assert first.frame.winfo_y() > app.lanes[0].frame.winfo_y()
+        app.move_lane(first, 0)
+        yield 0.2
+        assert app.lanes[0] is first and app.player.tracks[0] is first.track
+        log("ok: drag the six-dot grip to reorder tracks (player order follows)")
+
         # seek
         app.seek(0.5)
         yield 0.1

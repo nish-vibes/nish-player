@@ -112,6 +112,11 @@ def icon(name, color, size=16):
         a = int(name[4:]) * 30
         d.arc([S * .12, S * .12, S * .88, S * .88], 0, 360, fill=(255, 255, 255, 40), width=w)
         d.arc([S * .12, S * .12, S * .88, S * .88], a, a + 100, fill=color, width=w)
+    elif name == "grip":  # six dots
+        r = S * .085
+        for cx in (S * .36, S * .64):
+            for cy in (S * .2, S * .5, S * .8):
+                d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
     elif name == "youtube":
         d.rounded_rectangle([S * .06, S * .2, S * .94, S * .8], radius=S * .18, outline=color, width=w)
         d.polygon([(S * .42, S * .36), (S * .42, S * .64), (S * .66, S * .5)], fill=color)
