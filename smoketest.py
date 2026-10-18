@@ -362,6 +362,7 @@ def run(app, out_dir):
         assert app.in_dead_zone() and app.current_cents() == 0 and not app.player.varispeed
         assert app.fine_info.cget("text").strip() == "Track is tuned to A = 439.2 Hz", app.fine_info.cget("text")
         assert app.vari_btn.winfo_ismapped() and "varispeed" in app.vari_btn.cget("text")
+        assert app.vari_note.winfo_ismapped() and "length" in app.vari_note.cget("text")
         shot("4b-deadzone")
         assert app.vari_btn.cget("text") == "Use varispeed (+3.0 ct)", app.vari_btn.cget("text")
         app.vari_btn.invoke()
@@ -369,6 +370,8 @@ def run(app, out_dir):
         assert app.current_cents() == 3.0 and app.player.varispeed
         assert app.fine_val.cget("text") == "+3.0 ct", app.fine_val.cget("text")
         assert "Varispeed" in app.fine_info.cget("text")
+        assert app.vari_note.winfo_ismapped()
+        shot("4c-deadzone-varispeed")
         app.vari_btn.invoke()
         yield 0.2
         assert app.current_cents() == 0 and not app.player.varispeed

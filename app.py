@@ -614,6 +614,11 @@ class App:
                                       fg_color="transparent", hover_color="#1c2d26", border_width=1,
                                       border_color=GREEN_BORDER, text_color=GREEN_TXT,
                                       command=self.toggle_auto_vari)
+        # dead zone: remind that any fine-tuning changes the length of the recording
+        self.vari_note = ctk.CTkLabel(fc, text="", font=font(11), text_color=AMBER_TXT, anchor="w",
+                                      justify="left", wraplength=260)
+        fc.bind("<Configure>", lambda e: self.vari_note.configure(wraplength=max(160, e.width - 40)),
+                add="+")
         self._style_fine()
 
         bottom = ctk.CTkFrame(cards, fg_color="transparent")
@@ -692,6 +697,7 @@ class App:
         dead = auto and self.in_dead_zone()
         if not dead:
             self.vari_btn.pack_forget()
+            self.vari_note.pack_forget()
         if not auto:
             self.fine_info.pack_forget()
             self.fine_scale.pack(fill="x", padx=16, pady=(4, 12))
@@ -708,7 +714,9 @@ class App:
                 self.fine_info.configure(text=f"  Track is tuned to A = {a:.1f} Hz", text_color=GREEN_TXT,
                                          image=icon("check", GREEN, 13))
                 self.vari_btn.configure(text=f"Use varispeed ({cents_text(self.auto_result[0], 1)})")
-            self.vari_btn.pack(anchor="w", padx=16, pady=(0, 12))
+            self.vari_btn.pack(anchor="w", padx=16, pady=(0, 6))
+            self.vari_note.configure(text=self.length_note())
+            self.vari_note.pack(fill="x", padx=16, pady=(0, 12))
             return
         if self.analysing:
             self.fine_info.configure(text="Analysing the tuning…", text_color=GREEN_TXT)
@@ -1049,6 +1057,23 @@ class App:
         """Auto 440 found the track within ±4 cents of A440: left as is unless varispeed is chosen."""
         r = self.auto_result
         return bool(r and r[1] and r[2] >= 0.12 and r[0] and abs(r[0]) <= engine.VARISPEED_MAX)
+
+    def length_note(self):
+        """Dead-zone hint: fine-tuning (varispeed) changes the length of the recording."""
+        ms = ""
+        try:
+            secs = self.player.source_length() / engine.SR
+            ratio = engine.varispeed_params(self.auto_result[0])[0]
+            d = int(round(secs * (1 / ratio - 1) * 1000))
+            if secs > 0 and d:
+                ms = f" ({d:+d} ms)".replace("-", "−")
+        except Exception:
+            pass
+        if self.auto_vari_ok:
+            return (f"Fine-tuning changes the original length of the recording{ms}. "
+                    "Use no fine-tuning to keep the track's length as is.")
+        return (f"Fine-tuning would change the original length of the recording{ms}. "
+                "Leave it off to keep the track's length as is.")
 
     def stretch_params(self):
         """(speed, semitones, varispeed) for the player and export."""
