@@ -159,6 +159,7 @@ class Lane:
         else:
             self.stripe.place_forget()
         self.canvas.configure(bg="#171c26" if on else PANEL)
+        self.update_band()
 
     def refresh_buttons(self):
         for btn, on, cols in ((self.mute_btn, self.track.mute, MUTE_ON),
@@ -193,6 +194,7 @@ class Lane:
         mid = h / 2
         frac = self.app.player.position()
         self.played = int(frac * n)
+        self.band = c.create_rectangle(0, 0, 0, 0, width=0, fill=PANEL)
         for i in range(n):
             seg = pk[idx[i]:max(idx[i] + 1, idx[i + 1])]
             v = float(seg.max()) if len(seg) else 0.0
@@ -202,6 +204,23 @@ class Lane:
                                                 fill=bright if i < self.played else dim))
         x = 8 + frac * n * self.BAR
         self.playhead = c.create_line(x, 0, x, h, fill="#ffffff", width=2)
+        self.update_band()
+
+    def update_band(self):
+        """Faint band behind the waveform showing the loop area."""
+        if not self.bars:
+            return
+        r = self.app.player.region
+        n_src = self.app.player.source_length()
+        if not r or not n_src:
+            self.canvas.coords(self.band, 0, 0, 0, 0)
+            return
+        span = len(self.bars) * self.BAR
+        on = self.app.player.loop
+        bg = "#171c26" if self.selected else PANEL
+        self.canvas.itemconfigure(self.band, fill=blend("#2a3a60" if on else "#2a2f37", bg, 0.45))
+        self.canvas.coords(self.band, 8 + span * r[0] / n_src, 0, 8 + span * r[1] / n_src,
+                           self.canvas.winfo_height())
 
     def update_playhead(self, frac):
         if not self.bars:
@@ -483,9 +502,14 @@ class App:
         self.count_lbl = ctk.CTkLabel(ruler, text="NO TRACKS", font=font(11), text_color=MUTED,
                                       width=HEAD_W - 16, anchor="w")
         self.count_lbl.grid(row=0, column=0, padx=(14, 2))
-        self.ruler = tk.Canvas(ruler, height=26, bg=PANEL, highlightthickness=0)
+        self.ruler = tk.Canvas(ruler, height=30, bg=PANEL, highlightthickness=0, cursor="xterm")
         self.ruler.grid(row=0, column=1, sticky="ew")
         self.ruler.bind("<Configure>", lambda e: self.draw_ruler())
+        self.ruler.bind("<Button-1>", self._ruler_press)
+        self.ruler.bind("<B1-Motion>", self._ruler_drag)
+        self.ruler.bind("<ButtonRelease-1>", self._ruler_release)
+        self.ruler.bind("<Motion>", self._ruler_hover)
+        self._rdrag = None
         ctk.CTkFrame(box, fg_color=BORDER, height=1, corner_radius=0).grid(row=0, column=0, sticky="sew")
         self.lanes_box = ctk.CTkScrollableFrame(box, fg_color=PANEL, corner_radius=0,
                                                 scrollbar_button_color=BORDER2,
@@ -821,26 +845,116 @@ class App:
             lane.refresh_buttons()
             lane.set_silent(g <= 0)
 
+    def _ruler_span(self):
+        if not self.lanes:
+            return 1
+        return max(1, len(self.lanes[0].bars) * Lane.BAR)
+
+    def _x_to_src(self, x):
+        n = self.player.source_length()
+        return max(0.0, min(1.0, (x - 8) / self._ruler_span())) * n
+
+    def _src_to_x(self, p):
+        n = self.player.source_length() or 1
+        return 8 + self._ruler_span() * p / n
+
     def draw_ruler(self):
         c = self.ruler
         c.delete("all")
         n = self.player.length()
         if not n or not self.lanes:
             return
-        w = self.lanes[0].canvas.winfo_width()
-        if w <= 1:
-            w = c.winfo_width() - 16
-        bars = max(1, (w - 16) // Lane.BAR)
-        span = bars * Lane.BAR
+        span = self._ruler_span()
         dur = n / engine.SR
+        r = self.player.region
+        if r:   # the loop area, behind the time marks
+            on = self.player.loop
+            x0, x1 = self._src_to_x(r[0]), self._src_to_x(r[1])
+            c.create_rectangle(x0, 2, x1, 29, width=0, fill="#26365a" if on else "#22272f")
+            edge = ACCENT if on else "#4a515b"
+            c.create_line(x0, 2, x0, 29, fill=edge, width=2)
+            c.create_line(x1, 2, x1, 29, fill=edge, width=2)
+            sp = self.player.speed
+            label = f"{fmt_time(r[0] / engine.SR / sp)} – {fmt_time(r[1] / engine.SR / sp)}"
+            if x1 - x0 > 110:
+                c.create_text((x0 + x1) / 2, 15, text=label, fill=ACCENT_SOFT if on else MUTED,
+                              font=(MONO, 9))
+            cx = x1 - 9 if x1 - x0 > 40 else x1 + 10
+            c.create_text(cx, 15, text="×", fill=TEXT2, font=(UI, 12), tags=("clear",))
         step = next((s for s in (5, 10, 15, 20, 30, 60, 120, 300) if dur / s <= 9), 600)
         t = 0
         while t <= dur:
             x = 8 + span * t / dur
-            c.create_line(x, 20, x, 26, fill=BORDER2)
-            c.create_text(x + 3, 12, text=fmt_time(t), anchor="w", fill=MUTED, font=(MONO, 9))
+            c.create_line(x, 23, x, 29, fill=BORDER2)
+            if not r:
+                c.create_text(x + 3, 14, text=fmt_time(t), anchor="w", fill=MUTED, font=(MONO, 9))
+            else:
+                c.create_text(x + 3, 9, text=fmt_time(t), anchor="w", fill=DIM, font=(MONO, 8))
             t += step
-        self._ruler_len = n
+        self._ruler_len = (n, r, self.player.loop)
+
+    def refresh_region(self):
+        self.draw_ruler()
+        for lane in self.lanes:
+            lane.update_band()
+
+    def _ruler_hit(self, x):
+        r = self.player.region
+        if not r:
+            return None
+        x0, x1 = self._src_to_x(r[0]), self._src_to_x(r[1])
+        if "clear" in self.ruler.gettags(self.ruler.find_closest(x, 15)[0]) and \
+                abs(x - (x1 - 9 if x1 - x0 > 40 else x1 + 10)) < 8:
+            return "clear"
+        if abs(x - x0) < 7:
+            return "a"
+        if abs(x - x1) < 7:
+            return "b"
+        if x0 < x < x1:
+            return "move"
+        return None
+
+    def _ruler_hover(self, e):
+        hit = self._ruler_hit(e.x)
+        self.ruler.configure(cursor={"a": "sb_h_double_arrow", "b": "sb_h_double_arrow", "move": "fleur",
+                                     "clear": "hand2"}.get(hit, "xterm"))
+
+    def _ruler_press(self, e):
+        if not self.lanes:
+            return
+        self._rdrag = {"x": e.x, "hit": self._ruler_hit(e.x), "region": self.player.region, "moved": False}
+
+    def _ruler_drag(self, e):
+        d = self._rdrag
+        if not d:
+            return
+        if not d["moved"] and abs(e.x - d["x"]) < 4:
+            return
+        d["moved"] = True
+        hit, r = d["hit"], d["region"]
+        if hit == "a":
+            self.player.set_region(self._x_to_src(e.x), r[1])
+        elif hit == "b":
+            self.player.set_region(r[0], self._x_to_src(e.x))
+        elif hit == "move":
+            delta = self._x_to_src(e.x) - self._x_to_src(d["x"])
+            n = self.player.source_length()
+            delta = max(-r[0], min(n - r[1], delta))
+            self.player.set_region(r[0] + delta, r[1] + delta)
+        else:
+            self.player.set_region(self._x_to_src(d["x"]), self._x_to_src(e.x))
+        self.refresh_region()
+
+    def _ruler_release(self, e):
+        d, self._rdrag = self._rdrag, None
+        if not d:
+            return
+        if not d["moved"]:
+            if d["hit"] == "clear":
+                self.player.set_region(None, None)
+                self.refresh_region()
+            else:
+                self.seek(self._x_to_src(e.x) / max(1, self.player.source_length()))
 
     # ----- transport -----
     def toggle_play(self):
@@ -853,6 +967,7 @@ class App:
     def toggle_loop(self):
         self.player.loop = not self.player.loop
         self._style_loop()
+        self.refresh_region()
 
     def seek(self, frac):
         self.player.seek(frac)
@@ -985,7 +1100,7 @@ class App:
             lane.update_playhead(frac)
         sr = engine.SR
         self.time_lbl.configure(text=f"{fmt_time(frac * n / sr)} / {fmt_time(n / sr)}")
-        if getattr(self, "_ruler_len", None) != n:
+        if getattr(self, "_ruler_len", None) != (n, self.player.region, self.player.loop):
             self.draw_ruler()
 
     def _handle_events(self):
@@ -1120,6 +1235,9 @@ class ExportDialog:
         self.folder = str(Path(lanes[0].track.path).parent)
         gains = app.player.gains()
         self.tags = engine.tags(app.speed, app.semis, app.current_cents(), app.auto)
+        self.region = app.player.active_region()
+        if self.region:
+            self.tags.append(engine.region_tag(*self.region, app.speed).lstrip("_"))
 
         body = ctk.CTkFrame(win, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=24, pady=(18, 0))
@@ -1174,6 +1292,16 @@ class ExportDialog:
             ctk.CTkLabel(chips, text=f"  {text}  ", font=font(12, mono=True), corner_radius=12, height=26,
                          fg_color="#222a40" if strong else "#2a2e34",
                          text_color="#b8c7ff" if strong else "#a8aeb7").pack(side="left", padx=(0, 6))
+        if self.region:
+            sp = app.speed
+            span = f"{fmt_time(self.region[0] / engine.SR / sp)} – {fmt_time(self.region[1] / engine.SR / sp)}"
+            note = ctk.CTkFrame(body, fg_color="#1d2333", border_color="#34508a", border_width=1,
+                                corner_radius=8)
+            note.pack(fill="x", pady=(10, 0))
+            ctk.CTkLabel(note, text=f"  Loop is on – only the marked area ({span}) will be exported, "
+                                    "with 2-second fades in and out.", font=font(12), text_color=ACCENT_SOFT,
+                         wraplength=460, justify="left", image=icon("loop", ACCENT_SOFT, 15),
+                         compound="left").pack(anchor="w", padx=12, pady=8)
         if app.auto and app.semis and app.current_cents():
             warn = ctk.CTkFrame(body, fg_color=AMBER_BG, border_color=AMBER_BORDER, border_width=1,
                                 corner_radius=8)
@@ -1280,7 +1408,7 @@ class ExportDialog:
             try:
                 w = engine.export(tracks, gains, master, speed, semis, mode, fmt, dest,
                                   progress=lambda f: app.events.put(("export_progress", f)),
-                                  name_tags=self.tags)
+                                  name_tags=self.tags, region=self.region)
                 app.events.put(("export_done", True, w))
             except Exception as e:
                 traceback.print_exc()

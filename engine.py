@@ -201,6 +201,14 @@ def fmt_semitones(st):
     return ("+" if st > 0 else "-" if st < 0 else "") + f"{abs(st):g}"
 
 
+def region_tag(a, b, speed=1.0):
+    """'_0m42-1m13' for a loop area (times as heard at this speed)."""
+    def mmss(x):
+        sec = int(x / SR / speed)
+        return f"{sec // 60}m{sec % 60:02d}"
+    return f"_{mmss(a)}-{mmss(b)}"
+
+
 def tags(speed, semis, cents, auto440):
     t = []
     if abs(speed - 1) > 1e-6:
@@ -240,6 +248,34 @@ class Track:
     @property
     def vocal(self):
         return is_vocal(self.path, self.label)
+
+
+LOOP_FADE = 2.0  # seconds of fade in/out at the edges of a loop area
+
+
+def loop_fade_len(a, b):
+    """Fade length in samples for a loop area: 2 s, or a quarter of a short area."""
+    return max(1.0, min(LOOP_FADE * SR, (b - a) / 4))
+
+
+def region_gain(p, a, b):
+    """Gain for source positions p inside the loop area a..b (fades at both ends, 0 outside)."""
+    f = loop_fade_len(a, b)
+    g = np.clip((p - a) / f, 0.0, 1.0) * np.clip((b - p) / f, 0.0, 1.0)
+    return g.astype(np.float32)
+
+
+def render_part(audio, a, b, speed, semitones, vocal=False):
+    """Speed/pitch-process only source samples a..b (with a little context on both sides)."""
+    a, b = int(a), int(b)
+    pad = SR
+    s0, e0 = max(0, a - pad), min(len(audio), b + pad)
+    r = render(audio[s0:e0], speed, semitones, vocal)
+    off, n = int(round((a - s0) / speed)), int(round((b - a) / speed))
+    seg = r[off:off + n]
+    if len(seg) < n:
+        seg = np.vstack([seg, np.zeros((n - len(seg), 2), np.float32)])
+    return seg
 
 
 class LiveStretcher:
@@ -324,6 +360,7 @@ class Player:
         self.tracks = []
         self.playing = False
         self.loop = False
+        self.region = None      # loop area (start, end) in original-audio samples
         self.src_pos = 0.0      # position in the original audio, in samples
         self.master = 1.0       # linear master gain
         self.speed = 1.0
@@ -387,6 +424,7 @@ class Player:
         with self.lock:
             self.tracks = []
             self.playing = False
+            self.region = None
             self.src_pos = 0.0
 
     def source_length(self):
@@ -405,12 +443,32 @@ class Player:
             self.src_pos = max(0.0, min(1.0, frac)) * self.source_length()
             self._live_dirty = True
 
+    def active_region(self):
+        """The loop area, if loop is on and an area is marked."""
+        r = self.region
+        if self.loop and r and r[1] - r[0] >= SR * 0.25:
+            return r
+        return None
+
+    def set_region(self, a, b):
+        with self.lock:
+            if a is None:
+                self.region = None
+            else:
+                n = self.source_length()
+                a, b = sorted((max(0.0, min(n, a)), max(0.0, min(n, b))))
+                self.region = (a, b) if b - a >= SR * 0.1 else None
+            self._live_dirty = True
+
     def toggle(self):
         with self.lock:
             if not self.tracks:
                 return False
             if not self.playing and self.src_pos >= self.source_length() - 1:
                 self.src_pos = 0.0
+            reg = self.active_region()
+            if not self.playing and reg and not (reg[0] <= self.src_pos < reg[1]):
+                self.src_pos = reg[0]
             self.playing = not self.playing
             self._live_dirty = True
             return self.playing
@@ -525,9 +583,19 @@ class Player:
             if not self.playing or not self.tracks:
                 outdata.fill(0)
                 return
+            reg = self.active_region()
+            if reg and not (reg[0] <= self.src_pos < reg[1]):
+                self.src_pos = reg[0]          # loop is on: stay inside the area
+                self._live_dirty = True
+            start, speed = self.src_pos, self.speed
             block = self.render_block(frames) * self.master
             n = self.source_length()
-            if self.src_pos >= n:
+            if reg:
+                block *= region_gain(start + np.arange(frames) * speed, *reg)[:, None]
+                if self.src_pos >= reg[1]:
+                    self.src_pos = reg[0] + (self.src_pos - reg[1])
+                    self._live_dirty = True
+            elif self.src_pos >= n:
                 if self.loop and n:
                     self.src_pos -= n
                 else:
@@ -605,11 +673,20 @@ def unique_path(p):
 
 
 def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=lambda f: None,
-           name_tags=()):
+           name_tags=(), region=None):
     """mode 'mix': dest is the output file. mode 'each': dest is a folder.
     Renders from the original audio at full quality. Returns the written paths."""
-    ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3"}[fmt]
+    ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3", "OPUS": ".opus"}[fmt]
     written = []
+
+    def piece(t):
+        if region is None:
+            return render(t.orig, speed, semitones, t.vocal)
+        a, b = region
+        seg = render_part(t.orig, a, b, speed, semitones, t.vocal)
+        p = a + np.arange(len(seg)) * speed
+        return seg * region_gain(p, a, b)[:, None]
+
     total = len(tracks) + 1
     if mode == "mix":
         mix = None
@@ -617,7 +694,7 @@ def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=la
             progress(i / total)
             if g <= 0:
                 continue
-            buf = render(t.orig, speed, semitones, t.vocal) * (g * master)
+            buf = piece(t) * (g * master)
             if mix is None:
                 mix = buf.copy()
             else:
@@ -639,7 +716,7 @@ def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=la
         t_tags = list(name_tags)
         for i, t in enumerate(tracks):
             progress(i / total)
-            buf = render(t.orig, speed, semitones, t.vocal) * master
+            buf = piece(t) * master
             name = safe_filename("_".join([Path(t.path).stem] + t_tags)) + ext
             dst = unique_path(folder / name)
             _encode(buf, dst, fmt)

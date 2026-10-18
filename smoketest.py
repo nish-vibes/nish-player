@@ -306,6 +306,56 @@ def run(app, out_dir):
         assert app.player.key() == (1.0, 0.0)
         log("ok: Ctrl+click resets speed, pitch, fine tune, track volume and master")
 
+        # loop area: drag on the timeline, loop button, export only the area, clear with ×
+        rc = app.ruler
+        span = app._ruler_span()
+        x_a, x_b = 8 + span * 0.25, 8 + span * 0.6
+        rc.event_generate("<Button-1>", x=int(x_a), y=15)
+        rc.event_generate("<B1-Motion>", x=int(x_a) + 30, y=15)
+        rc.event_generate("<B1-Motion>", x=int(x_b), y=15)
+        rc.event_generate("<ButtonRelease-1>", x=int(x_b), y=15)
+        yield 0.2
+        n_src = app.player.source_length()
+        r = app.player.region
+        assert r and abs(r[0] / n_src - 0.25) < 0.02 and abs(r[1] / n_src - 0.6) < 0.02, r
+        rc.event_generate("<Button-1>", x=int(8 + span * 0.8), y=15)        # plain click = seek
+        rc.event_generate("<ButtonRelease-1>", x=int(8 + span * 0.8), y=15)
+        yield 0.2
+        assert app.player.region == r and abs(app.player.position() - 0.8) < 0.02
+        assert app.player.active_region() is None
+        app.loop_btn.invoke()
+        yield 0.2
+        assert app.player.loop and app.player.active_region() == r
+        log("ok: drag on the timeline marks a loop area; click still seeks; loop uses the area")
+        shot("5-loop")
+        app.open_export()
+        yield 0.8
+        d = app.export_dialog
+        assert d.region == r and any("m" in t and "-" in t for t in d.tags), d.tags
+        d.folder = str(out / "export-loop")
+        d.fmt.set("WAV")
+        d.mode.set("mix")
+        d.refresh()
+        d.start()
+        t0 = time.time()
+        while d.busy:
+            assert time.time() - t0 < 120
+            yield 0.2
+        secs = engine.probe_seconds(d.written[0])
+        want = (r[1] - r[0]) / engine.SR
+        assert abs(secs - want) < 0.1, (secs, want)
+        log(f"ok: export with loop on writes only the area: {Path(d.written[0]).name} ({secs:.2f} s)")
+        d.close()
+        yield 0.2
+        x1 = app._src_to_x(r[1])
+        cx = x1 - 9 if x1 - app._src_to_x(r[0]) > 40 else x1 + 10
+        rc.event_generate("<Button-1>", x=int(cx), y=15)
+        rc.event_generate("<ButtonRelease-1>", x=int(cx), y=15)
+        yield 0.2
+        assert app.player.region is None
+        app.loop_btn.invoke()
+        log("ok: × clears the loop area")
+
         # remove and clear
         app.remove_lane(drums)
         yield 0.2

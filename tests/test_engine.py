@@ -162,6 +162,44 @@ def main(out_dir=None):
     p.playing = False
     ok("slider change is heard at once, high-quality render takes over at the same spot")
 
+    # loop area: playback stays inside it, with 2-second fades at both ends
+    for tr in tracks:
+        tr.mute = False
+    p.set_stretch(1.0, 0)
+    for _ in range(300):
+        if p.ready():
+            break
+        time.sleep(0.05)
+    p.set_region(SR * 0.5, SR * 5.5)
+    p.loop = True
+    p.seek(0.97)                     # outside the area
+    assert p.toggle() and abs(p.src_pos - SR * 0.5) < 1, p.src_pos   # play starts at the area
+    obuf = np.zeros((1024, 2), np.float32)
+    levels, positions = [], []
+    for _ in range(int(SR * 12 / 1024)):
+        p._callback(obuf, 1024, None, None)
+        levels.append(float(np.abs(obuf).max()))
+        positions.append(p.src_pos)
+    assert all(SR * 0.5 <= x < SR * 5.5 + 1024 for x in positions), (min(positions), max(positions))
+    wraps = sum(1 for x, y in zip(positions, positions[1:]) if y < x)
+    assert wraps == 2, wraps
+    assert levels[0] < 0.05 and max(levels[80:150]) > 0.2, (levels[0], max(levels[80:150]))
+    assert engine.loop_fade_len(0, SR * 5) == SR * 1.25 and engine.loop_fade_len(0, SR * 60) == SR * 2
+    p.playing = False
+    p.loop = False
+    assert p.active_region() is None
+    ok("loop area: starts at the area, wraps twice in 12 s, fades in/out")
+
+    # export only the loop area
+    w = engine.export(tracks, p.gains(), 1.0, 0.8, 0, "mix", "WAV", out / "loop.wav",
+                      region=(SR * 1, SR * 4))
+    secs = engine.probe_seconds(w[0])
+    assert abs(secs - 3 / 0.8) < 0.05, secs
+    y = engine.decode(w[0])
+    assert float(np.abs(y[:200]).max()) < 0.02 and float(np.abs(y[-200:]).max()) < 0.02
+    assert engine.region_tag(SR * 42, SR * 73) == "_0m42-1m13"
+    ok(f"export only the loop area: {secs:.2f} s with fades")
+
     # export: mix + each track, all formats
     gains = p.gains()
     for fmt in ("WAV", "FLAC", "MP3"):
