@@ -82,7 +82,7 @@ jobs:
             Write-Output "::error title=gui-smoketest::$msg"
             throw "GUI smoke test failed"
           }
-          $short = (($report -split "`n") | Where-Object { $_ -match "^(ok|skip|window)" }) -join "%0A"
+          $short = (($report -replace "`r", "" -split "`n") | Where-Object { $_ -match "^(ok|skip|window)" }) -join "%0A"
           Write-Output "::notice title=gui-smoketest::$short"
 
       - uses: actions/upload-artifact@v4
