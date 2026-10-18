@@ -26,7 +26,10 @@ click **More info → Run anyway**.
 - **Ctrl+click** any slider (or the master fader) to put it back to its default.
 - **Fine tune** (±50 cents) and **Auto 440 (beta)**: Auto 440 measures how far the song is
   from A = 440 Hz and sets the fine tune slider for you (it turns green and locks while Auto 440
-  is on). Turn it off and your own fine tune value comes back.
+  is on). Turn it off and your own fine tune value comes back. Fine-tuning of **4 cents or less**
+  (with speed 1.0× and pitch 0) uses **varispeed** – a lossless, turntable-style resample that
+  moves the tempo by a hair – instead of Rubber Band; export lets you switch back to Rubber Band.
+  If Auto 440 finds the song within ±4 cents of A440 it leaves it as is and offers varispeed.
 - **Master fader** with L/R level meters and a **CLIP** light that stays on until you click it.
   A gentle safety limiter keeps the sound from distorting.
 - **Export** the mix as you hear it (mute, solo and volume applied) or each track separately,
