@@ -543,7 +543,7 @@ class App:
         ctk.CTkButton(bottom, text="Reset speed & pitch", height=32, corner_radius=6, font=font(13),
                       fg_color="transparent", hover_color=BTN_HOVER, border_color=BORDER2,
                       border_width=1, text_color="#a8aeb7", command=self.reset_stretch).pack(side="left")
-        self.busy_lbl = ctk.CTkLabel(bottom, text="", font=font(12), text_color=ACCENT_SOFT)
+        self.busy_lbl = ctk.CTkLabel(bottom, text="", font=font(12), text_color=ACCENT_SOFT, compound="left")
         self.busy_lbl.pack(side="left", padx=14)
 
         self.fader = MasterFader(self, body)
@@ -854,17 +854,22 @@ class App:
 
     def _update_busy(self):
         if self.player.render_busy > 0:
-            self.busy_lbl.configure(text="Polishing the sound quality…", text_color=ACCENT_SOFT)
+            frame = (int(self.root.tk.call("clock", "milliseconds")) // 90) % 12
+            self.busy_lbl.configure(text="  Polishing…", text_color=ACCENT_SOFT,
+                                    image=icon(f"spin{frame}", ACCENT_SOFT, 14))
         elif self.player.render_error:
-            self.busy_lbl.configure(text="Couldn't apply speed & pitch – see the log", text_color=AMBER_TXT)
+            self.busy_lbl.configure(text="Couldn't apply speed & pitch – see the log", text_color=AMBER_TXT,
+                                    image=None)
         else:
-            self.busy_lbl.configure(text="Tip: Ctrl+click a slider to reset it", text_color=DIM)
+            self.busy_lbl.configure(text="Tip: Ctrl+click a slider to reset it", text_color=DIM, image=None)
 
     # ----- loop -----
     def _tick(self):
         try:
             self._handle_events()
             self._yt_button_tick()
+            if self.player.render_busy > 0:
+                self._update_busy()  # keeps the spinner turning
             self._update_positions()
             self.fader.set_levels(self.player.take_meter())
             self.fader.show_clip(self.player.clip)

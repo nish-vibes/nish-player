@@ -119,6 +119,10 @@ def run(app, out_dir):
         assert app.player.mode == "live"
         app.player.playing = False
         log("ok: slider change goes to the real-time stretcher immediately")
+        yield 0.6
+        assert app.busy_lbl.cget("text").strip() == "Polishing…" and app.busy_lbl.cget("image"), \
+            app.busy_lbl.cget("text")
+        log("ok: spinner + 'Polishing…' while the high-quality version renders")
         yield 0.5
         t0 = time.time()
         while app.player.render_busy or any(t.buf_key != (0.85, -2.0) for t in app.player.tracks):
