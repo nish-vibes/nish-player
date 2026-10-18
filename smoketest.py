@@ -326,7 +326,16 @@ def run(app, out_dir):
         app.loop_btn.invoke()
         yield 0.2
         assert app.player.loop and app.player.active_region() == r
-        log("ok: drag on the timeline marks a loop area; click still seeks; loop uses the area")
+        assert app.fade_inner.winfo_ismapped() and app.player.loop_fade == 1.0
+        app.fade_slider.set(0.5)
+        app.on_fade(0.5)
+        assert app.player.loop_fade == 0.5 and app.fade_val.cget("text") == "0.5 s"
+        c = app.fade_slider._canvas
+        c.event_generate("<Control-Button-1>", x=10, y=8, state=0x0004)
+        yield 0.2
+        assert app.player.loop_fade == 1.0, app.player.loop_fade
+        log("ok: drag on the timeline marks a loop area; click still seeks; loop uses the area; "
+            "Fade slider shows with loop (1 s default, Ctrl+click resets)")
         shot("5-loop")
         app.open_export()
         yield 0.8
@@ -354,7 +363,9 @@ def run(app, out_dir):
         yield 0.2
         assert app.player.region is None
         app.loop_btn.invoke()
-        log("ok: × clears the loop area")
+        yield 0.2
+        assert not app.fade_inner.winfo_ismapped()
+        log("ok: × clears the loop area; Fade slider hides when loop is off")
 
         # remove and clear
         app.remove_lane(drums)

@@ -553,7 +553,21 @@ class App:
         self.loop_btn = ctk.CTkButton(tr, text="", width=44, height=44, corner_radius=22,
                                       border_width=1, command=self.toggle_loop)
         self.loop_btn.grid(row=0, column=3, padx=9)
-        ctk.CTkLabel(tr, text="", width=150).grid(row=0, column=4, padx=(18, 0))
+        fade = self.fade_box = ctk.CTkFrame(tr, fg_color="transparent", width=170, height=44)
+        fade.grid(row=0, column=4, padx=(18, 0))
+        fade.grid_propagate(False)
+        fade.pack_propagate(False)
+        self.fade_inner = ctk.CTkFrame(fade, fg_color="transparent")
+        ctk.CTkLabel(self.fade_inner, text="Fade", font=font(12), text_color=MUTED, width=34).pack(side="left")
+        self.fade_slider = ctk.CTkSlider(self.fade_inner, from_=0, to=2, number_of_steps=20, width=84, height=16,
+                                         command=self.on_fade, progress_color=ACCENT, button_color=TEXT2,
+                                         button_hover_color="#ffffff", fg_color=BORDER2)
+        self.fade_slider.set(engine.LOOP_FADE)
+        self.fade_slider.pack(side="left", padx=4)
+        self.fade_val = ctk.CTkLabel(self.fade_inner, text="1.0 s", font=font(12, mono=True),
+                                     text_color=ACCENT_SOFT, width=40, anchor="w")
+        self.fade_val.pack(side="left")
+        self.ctrl_reset(self.fade_slider, engine.LOOP_FADE, self.on_fade)
         self._style_loop()
 
         # speed / pitch / fine tune + master fader
@@ -648,6 +662,10 @@ class App:
     # ----- styling helpers -----
     def _style_loop(self):
         on = self.player.loop
+        if on:
+            self.fade_inner.place(relx=0, rely=0.5, anchor="w")
+        else:
+            self.fade_inner.place_forget()
         self.loop_btn.configure(fg_color="#1d2333" if on else BTN, border_color=ACCENT if on else BORDER2,
                                 image=icon("loop", ACCENT_SOFT if on else TEXT2, 18),
                                 hover_color="#232b40" if on else BTN_HOVER)
@@ -874,6 +892,11 @@ class App:
             edge = ACCENT if on else "#4a515b"
             c.create_line(x0, 2, x0, 29, fill=edge, width=2)
             c.create_line(x1, 2, x1, 29, fill=edge, width=2)
+            if on:   # the fades, as slopes at both ends
+                fw = (x1 - x0) * engine.loop_fade_len(r[0], r[1], self.player.loop_fade) / max(1, r[1] - r[0])
+                if fw >= 1:
+                    c.create_line(x0, 29, x0 + fw, 3, fill=ACCENT_SOFT, width=1)
+                    c.create_line(x1 - fw, 3, x1, 29, fill=ACCENT_SOFT, width=1)
             sp = self.player.speed
             label = f"{fmt_time(r[0] / engine.SR / sp)} – {fmt_time(r[1] / engine.SR / sp)}"
             if x1 - x0 > 110:
@@ -891,7 +914,7 @@ class App:
             else:
                 c.create_text(x + 3, 9, text=fmt_time(t), anchor="w", fill=DIM, font=(MONO, 8))
             t += step
-        self._ruler_len = (n, r, self.player.loop)
+        self._ruler_len = (n, r, self.player.loop, self.player.loop_fade)
 
     def refresh_region(self):
         self.draw_ruler()
@@ -967,6 +990,11 @@ class App:
     def toggle_loop(self):
         self.player.loop = not self.player.loop
         self._style_loop()
+        self.refresh_region()
+
+    def on_fade(self, v):
+        self.player.loop_fade = round(float(v), 1)
+        self.fade_val.configure(text=f"{self.player.loop_fade:.1f} s")
         self.refresh_region()
 
     def seek(self, frac):
@@ -1100,7 +1128,7 @@ class App:
             lane.update_playhead(frac)
         sr = engine.SR
         self.time_lbl.configure(text=f"{fmt_time(frac * n / sr)} / {fmt_time(n / sr)}")
-        if getattr(self, "_ruler_len", None) != (n, self.player.region, self.player.loop):
+        if getattr(self, "_ruler_len", None) != (n, self.player.region, self.player.loop, self.player.loop_fade):
             self.draw_ruler()
 
     def _handle_events(self):
@@ -1298,8 +1326,10 @@ class ExportDialog:
             note = ctk.CTkFrame(body, fg_color="#1d2333", border_color="#34508a", border_width=1,
                                 corner_radius=8)
             note.pack(fill="x", pady=(10, 0))
+            f = app.player.loop_fade
+            fades = "with no fades" if f <= 0 else f"with {f:g}-second fades in and out"
             ctk.CTkLabel(note, text=f"  Loop is on – only the marked area ({span}) will be exported, "
-                                    "with 2-second fades in and out.", font=font(12), text_color=ACCENT_SOFT,
+                                    f"{fades}.", font=font(12), text_color=ACCENT_SOFT,
                          wraplength=460, justify="left", image=icon("loop", ACCENT_SOFT, 15),
                          compound="left").pack(anchor="w", padx=12, pady=8)
         if app.auto and app.semis and app.current_cents():
@@ -1408,7 +1438,7 @@ class ExportDialog:
             try:
                 w = engine.export(tracks, gains, master, speed, semis, mode, fmt, dest,
                                   progress=lambda f: app.events.put(("export_progress", f)),
-                                  name_tags=self.tags, region=self.region)
+                                  name_tags=self.tags, region=self.region, fade=app.player.loop_fade)
                 app.events.put(("export_done", True, w))
             except Exception as e:
                 traceback.print_exc()

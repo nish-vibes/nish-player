@@ -184,11 +184,13 @@ def main(out_dir=None):
     wraps = sum(1 for x, y in zip(positions, positions[1:]) if y < x)
     assert wraps == 2, wraps
     assert levels[0] < 0.05 and max(levels[80:150]) > 0.2, (levels[0], max(levels[80:150]))
-    assert engine.loop_fade_len(0, SR * 5) == SR * 1.25 and engine.loop_fade_len(0, SR * 60) == SR * 2
+    assert engine.loop_fade_len(0, SR * 5, 2.0) == SR * 1.25 and engine.loop_fade_len(0, SR * 60) == SR * 1
+    g0 = engine.region_gain(np.array([99.0, 100.0, 150.0, 199.0, 200.0]), 100, 200, 0.0)
+    assert list(g0) == [0, 1, 1, 1, 0], g0
     p.playing = False
     p.loop = False
     assert p.active_region() is None
-    ok("loop area: starts at the area, wraps twice in 12 s, fades in/out")
+    ok("loop area: starts at the area, wraps twice in 12 s, fades in/out (1 s default, 0 = none)")
 
     # export only the loop area
     w = engine.export(tracks, p.gains(), 1.0, 0.8, 0, "mix", "WAV", out / "loop.wav",

@@ -250,18 +250,21 @@ class Track:
         return is_vocal(self.path, self.label)
 
 
-LOOP_FADE = 2.0  # seconds of fade in/out at the edges of a loop area
+LOOP_FADE = 1.0  # default seconds of fade in/out at the edges of a loop area (0–2 s)
 
 
-def loop_fade_len(a, b):
-    """Fade length in samples for a loop area: 2 s, or a quarter of a short area."""
-    return max(1.0, min(LOOP_FADE * SR, (b - a) / 4))
+def loop_fade_len(a, b, fade=LOOP_FADE):
+    """Fade length in samples: `fade` seconds, at most a quarter of the area."""
+    return max(0.0, min(fade * SR, (b - a) / 4))
 
 
-def region_gain(p, a, b):
+def region_gain(p, a, b, fade=LOOP_FADE):
     """Gain for source positions p inside the loop area a..b (fades at both ends, 0 outside)."""
-    f = loop_fade_len(a, b)
-    g = np.clip((p - a) / f, 0.0, 1.0) * np.clip((b - p) / f, 0.0, 1.0)
+    f = loop_fade_len(a, b, fade)
+    if f < 1:
+        g = ((p >= a) & (p < b)).astype(np.float32)
+    else:
+        g = np.clip((p - a) / f, 0.0, 1.0) * np.clip((b - p) / f, 0.0, 1.0)
     return g.astype(np.float32)
 
 
@@ -361,6 +364,7 @@ class Player:
         self.playing = False
         self.loop = False
         self.region = None      # loop area (start, end) in original-audio samples
+        self.loop_fade = LOOP_FADE  # seconds
         self.src_pos = 0.0      # position in the original audio, in samples
         self.master = 1.0       # linear master gain
         self.speed = 1.0
@@ -591,7 +595,7 @@ class Player:
             block = self.render_block(frames) * self.master
             n = self.source_length()
             if reg:
-                block *= region_gain(start + np.arange(frames) * speed, *reg)[:, None]
+                block *= region_gain(start + np.arange(frames) * speed, *reg, self.loop_fade)[:, None]
                 if self.src_pos >= reg[1]:
                     self.src_pos = reg[0] + (self.src_pos - reg[1])
                     self._live_dirty = True
@@ -673,7 +677,7 @@ def unique_path(p):
 
 
 def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=lambda f: None,
-           name_tags=(), region=None):
+           name_tags=(), region=None, fade=LOOP_FADE):
     """mode 'mix': dest is the output file. mode 'each': dest is a folder.
     Renders from the original audio at full quality. Returns the written paths."""
     ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3", "OPUS": ".opus"}[fmt]
@@ -685,7 +689,7 @@ def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=la
         a, b = region
         seg = render_part(t.orig, a, b, speed, semitones, t.vocal)
         p = a + np.arange(len(seg)) * speed
-        return seg * region_gain(p, a, b)[:, None]
+        return seg * region_gain(p, a, b, fade)[:, None]
 
     total = len(tracks) + 1
     if mode == "mix":
