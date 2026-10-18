@@ -1,0 +1,1303 @@
+"""NiSH Player: a small multitrack player with speed, pitch, Auto 440 and export."""
+import math
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+import traceback
+from pathlib import Path
+
+APP_NAME = "NiSH Player"
+
+import engine  # noqa: E402  (sets up PATH for the bundled ffmpeg)
+
+LOG_FILE = engine.DATA_DIR / "log.txt"
+# A windowed .exe has no console; send stray prints to a log file instead of crashing.
+if sys.stdout is None or sys.stderr is None:
+    _log = open(LOG_FILE, "a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stdout or _log
+    sys.stderr = sys.stderr or _log
+
+import tkinter as tk  # noqa: E402
+from tkinter import filedialog, messagebox  # noqa: E402
+
+import customtkinter as ctk  # noqa: E402
+import numpy as np  # noqa: E402
+
+TkinterDnD = DND_FILES = None
+if not os.environ.get("NISH_NO_DND"):
+    try:
+        from tkinterdnd2 import TkinterDnD, DND_FILES  # noqa: F811
+    except Exception:
+        TkinterDnD = None
+
+# ---------- colours (from the design) ----------
+BG, HEADER, PANEL, LANE_BG, CARD = "#111316", "#16191d", "#15181c", "#171a1f", "#15181c"
+BORDER, BORDER2, BTN, BTN_HOVER = "#23272d", "#2c3138", "#1c2025", "#252a31"
+TEXT, TEXT2, SOFT, MUTED, DIM = "#eef0f3", "#d6d9de", "#b9bec6", "#8a919b", "#6b727c"
+ACCENT, ACCENT_HOVER, ACCENT_TXT, ACCENT_SOFT = "#7c9cff", "#94afff", "#0f1114", "#9fb4ff"
+GREEN, GREEN_TXT, GREEN_BG, GREEN_BORDER = "#5fd0a4", "#9fe3c6", "#14211c", "#2f6b55"
+RED, RED_TXT, RED_BG, RED_BORDER = "#ff4d4d", "#ff8a8a", "#3a1c1c", "#6b2a2a"
+AMBER, AMBER_TXT, AMBER_BG, AMBER_BORDER = "#e8c45a", "#f0d68a", "#2a2414", "#6b5520"
+MUTE_ON = ("#4a2626", "#e07b7b", "#ffb3b3")
+SOLO_ON = ("#4a3f1c", "#e8c45a", "#ffe08a")
+TRACK_COLORS = [("#7c9cff", "#33405e"), ("#f2a65a", "#5a4430"), ("#5fd0a4", "#2c5246"),
+                ("#e07bb8", "#55344a"), ("#c4b46a", "#4d4831"), ("#8fc3e0", "#344a57"),
+                ("#b48cf2", "#45385e"), ("#e08a7b", "#553530")]
+HEAD_W = 300   # width of the track header column
+UI = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
+MONO = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
+
+
+def font(size=13, weight="normal", mono=False):
+    return ctk.CTkFont(family=MONO if mono else UI, size=size, weight=weight)
+
+
+def fmt_time(seconds):
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def cents_text(c):
+    r = int(math.floor(abs(c) + 0.5)) * (1 if c >= 0 else -1)
+    return f"{r:+d} ct".replace("-", "−") if r else "0 ct"
+
+
+def blend(c1, c2, t):
+    """Mix two #rrggbb colours (t=0 -> c1, t=1 -> c2)."""
+    a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+
+
+# Master fader law: the scale marks sit at equal steps, like the design.
+FADER_POINTS = [(0.0, -60.0), (0.2, -24.0), (0.4, -12.0), (0.6, -6.0), (0.8, 0.0), (1.0, 6.0)]
+
+
+def fader_db(pos):
+    if pos <= 0.001:
+        return -math.inf
+    for (p0, d0), (p1, d1) in zip(FADER_POINTS, FADER_POINTS[1:]):
+        if pos <= p1:
+            return d0 + (d1 - d0) * (pos - p0) / (p1 - p0)
+    return 6.0
+
+
+def db_pos(db):
+    if db <= -60:
+        return 0.0
+    for (p0, d0), (p1, d1) in zip(FADER_POINTS, FADER_POINTS[1:]):
+        if db <= d1:
+            return p0 + (p1 - p0) * (db - d0) / (d1 - d0)
+    return 1.0
+
+
+# ---------- icons (drawn, so they look the same on every PC) ----------
+_ICONS = {}
+
+
+def icon(name, color, size=16):
+    key = (name, color, size)
+    if key in _ICONS:
+        return _ICONS[key]
+    from PIL import Image, ImageDraw
+    S = size * 4
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    w = max(4, S // 9)  # stroke width
+    if name == "play":
+        d.polygon([(S * .28, S * .16), (S * .28, S * .84), (S * .86, S * .5)], fill=color)
+    elif name == "pause":
+        d.rounded_rectangle([S * .24, S * .18, S * .42, S * .82], radius=S * .04, fill=color)
+        d.rounded_rectangle([S * .58, S * .18, S * .76, S * .82], radius=S * .04, fill=color)
+    elif name == "back":
+        d.rectangle([S * .2, S * .2, S * .2 + w, S * .8], fill=color)
+        d.polygon([(S * .8, S * .2), (S * .8, S * .8), (S * .32, S * .5)], fill=color)
+    elif name == "loop":
+        d.arc([S * .16, S * .2, S * .84, S * .8], 20, 320, fill=color, width=w)
+        d.polygon([(S * .6, S * .06), (S * .86, S * .27), (S * .56, S * .38)], fill=color)
+    elif name == "export":
+        d.line([(S * .5, S * .12), (S * .5, S * .62)], fill=color, width=w)
+        d.polygon([(S * .26, S * .44), (S * .74, S * .44), (S * .5, S * .72)], fill=color)
+        d.line([(S * .16, S * .86), (S * .84, S * .86)], fill=color, width=w)
+    elif name == "check":
+        d.line([(S * .16, S * .52), (S * .4, S * .76), (S * .86, S * .26)], fill=color, width=w + 2,
+               joint="curve")
+    elif name == "pencil":
+        d.line([(S * .24, S * .76), (S * .74, S * .26)], fill=color, width=w + 2)
+        d.polygon([(S * .12, S * .88), (S * .18, S * .66), (S * .34, S * .82)], fill=color)
+    elif name == "close":
+        d.line([(S * .24, S * .24), (S * .76, S * .76)], fill=color, width=w)
+        d.line([(S * .76, S * .24), (S * .24, S * .76)], fill=color, width=w)
+    elif name == "dot":
+        d.ellipse([S * .2, S * .2, S * .8, S * .8], fill=color)
+    elif name == "warn":
+        d.polygon([(S * .5, S * .08), (S * .94, S * .88), (S * .06, S * .88)], outline=color, width=w)
+        d.line([(S * .5, S * .36), (S * .5, S * .6)], fill=color, width=w)
+        d.ellipse([S * .45, S * .68, S * .55, S * .78], fill=color)
+    img = img.resize((size * 2, size * 2), Image.LANCZOS)
+    _ICONS[key] = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
+    return _ICONS[key]
+
+
+class ToolButton(ctk.CTkButton):
+    def __init__(self, master, text, command=None, width=None, height=36, primary=False, **kw):
+        opts = dict(text=text, command=command, height=height, corner_radius=8, font=font(13),
+                    fg_color=ACCENT if primary else BTN, hover_color=ACCENT_HOVER if primary else BTN_HOVER,
+                    text_color=ACCENT_TXT if primary else TEXT2, border_width=0 if primary else 1,
+                    border_color=BORDER2)
+        if width:
+            opts["width"] = width
+        if primary:
+            opts["font"] = font(13, "bold")
+        opts.update(kw)
+        super().__init__(master, **opts)
+
+
+# ---------------------------------------------------------------------------
+# One track lane: header (name, M/S, volume) + waveform
+# ---------------------------------------------------------------------------
+
+class Lane:
+    BAR = 4  # px per waveform bar
+
+    def __init__(self, app, parent, track, colors):
+        self.app, self.track = app, track
+        self.color, self.dim = colors
+        self.frame = ctk.CTkFrame(parent, fg_color=PANEL, corner_radius=0, border_width=0)
+        self.frame.grid_columnconfigure(1, weight=1)
+
+        head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=HEAD_W, height=92)
+        head.grid(row=0, column=0, sticky="nsw")
+        head.grid_propagate(False)
+        head.grid_columnconfigure(1, weight=1)
+        sep = ctk.CTkFrame(self.frame, fg_color=BORDER, width=1, height=1, corner_radius=0)
+        sep.grid(row=0, column=0, sticky="nse")
+
+        ctk.CTkLabel(head, text="", image=icon("dot", self.color, 12), width=14).grid(
+            row=0, column=0, padx=(14, 4), pady=(10, 0), sticky="w")
+        self.name_var = tk.StringVar(value=track.label)
+        self.name = ctk.CTkEntry(head, textvariable=self.name_var, font=font(13, "bold"), height=28,
+                                 fg_color=LANE_BG, border_width=1, border_color=LANE_BG,
+                                 text_color=TEXT, corner_radius=6)
+        self.name.grid(row=0, column=1, sticky="ew", pady=(8, 0))
+        self.name.bind("<FocusIn>", lambda e: self.name.configure(border_color=ACCENT, fg_color="#0f1114"))
+        self.name.bind("<FocusOut>", lambda e: self._commit_name())
+        self.name.bind("<Return>", lambda e: self.app.root.focus_set())
+        self.name.bind("<Escape>", lambda e: (self.name_var.set(self.track.label), self.app.root.focus_set()))
+        ctk.CTkLabel(head, text="", image=icon("pencil", DIM, 12), width=14).grid(
+            row=0, column=2, padx=(2, 6), pady=(8, 0))
+        self.mute_btn = ctk.CTkButton(head, text="M", width=30, height=28, corner_radius=6,
+                                      font=font(12, "bold", True), command=self.toggle_mute)
+        self.mute_btn.grid(row=0, column=3, padx=(0, 4), pady=(8, 0))
+        self.solo_btn = ctk.CTkButton(head, text="S", width=30, height=28, corner_radius=6,
+                                      font=font(12, "bold", True), command=self.toggle_solo)
+        self.solo_btn.grid(row=0, column=4, padx=(0, 4), pady=(8, 0))
+        self.remove_btn = ctk.CTkButton(head, text="", image=icon("close", DIM, 11), width=24, height=28, corner_radius=6,
+                                        fg_color="transparent", hover_color=BTN_HOVER, text_color=DIM,
+                                        font=font(12), command=lambda: self.app.remove_lane(self))
+        self.remove_btn.grid(row=0, column=5, padx=(0, 10), pady=(8, 0))
+
+        ctk.CTkLabel(head, text=Path(track.path).name, text_color="#7d848e", font=font(11, mono=True),
+                     anchor="w", height=20).grid(row=1, column=0, columnspan=6, sticky="ew", padx=(16, 12))
+        volrow = ctk.CTkFrame(head, fg_color="transparent")
+        volrow.grid(row=2, column=0, columnspan=6, sticky="ew", padx=(16, 12), pady=(0, 6))
+        volrow.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(volrow, text="Vol", text_color=MUTED, font=font(12), width=28, height=22, anchor="w").grid(
+            row=0, column=0)
+        self.vol = ctk.CTkSlider(volrow, from_=0, to=100, number_of_steps=100, height=16,
+                                 command=self.on_volume, progress_color=self.color,
+                                 button_color=TEXT2, button_hover_color="#ffffff", fg_color=BORDER2)
+        self.vol.set(100)
+        self.vol.grid(row=0, column=1, sticky="ew", padx=4)
+        self.vol_lbl = ctk.CTkLabel(volrow, text="100%", text_color=MUTED, font=font(11, mono=True),
+                                    width=40, height=22, anchor="e")
+        self.vol_lbl.grid(row=0, column=2)
+
+        self.canvas = tk.Canvas(self.frame, height=92, bg=PANEL, highlightthickness=0, cursor="hand2")
+        self.canvas.grid(row=0, column=1, sticky="nsew")
+        self.canvas.bind("<Configure>", lambda e: self.draw())
+        self.canvas.bind("<Button-1>", self._seek)
+        self.canvas.bind("<B1-Motion>", self._seek)
+        self.line = ctk.CTkFrame(self.frame, fg_color=BORDER, height=1, corner_radius=0)
+        self.line.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self.bars = []
+        self.played = 0
+        self.silent = False
+        self.playhead = None
+        self.refresh_buttons()
+
+    # --- controls ---
+    def _commit_name(self):
+        self.name.configure(border_color=LANE_BG, fg_color=LANE_BG)
+        text = self.name_var.get().strip()
+        if not text:
+            text = engine.guess_label(self.track.path)
+            self.name_var.set(text)
+        if text != self.track.label:
+            self.track.label = text
+            engine.save_label(self.track.path, text)
+
+    def toggle_mute(self):
+        self.track.mute = not self.track.mute
+        self.app.refresh_lanes()
+
+    def toggle_solo(self):
+        self.track.solo = not self.track.solo
+        self.app.refresh_lanes()
+
+    def on_volume(self, v):
+        self.track.volume = float(v) / 100.0
+        self.vol_lbl.configure(text=f"{int(round(v))}%")
+
+    def refresh_buttons(self):
+        for btn, on, cols in ((self.mute_btn, self.track.mute, MUTE_ON),
+                              (self.solo_btn, self.track.solo, SOLO_ON)):
+            if on:
+                btn.configure(fg_color=cols[0], border_color=cols[1], text_color=cols[2],
+                              hover_color=cols[0], border_width=1)
+            else:
+                btn.configure(fg_color=BTN, border_color=BORDER2, text_color="#a8aeb7",
+                              hover_color=BTN_HOVER, border_width=1)
+
+    def set_silent(self, silent):
+        if silent != self.silent:
+            self.silent = silent
+            self.draw()
+
+    # --- waveform ---
+    def colors(self):
+        if self.silent:
+            return blend(self.color, PANEL, 0.65), blend(self.dim, PANEL, 0.55)
+        return self.color, self.dim
+
+    def draw(self):
+        c = self.canvas
+        c.delete("all")
+        w, h = max(1, c.winfo_width()), max(1, c.winfo_height())
+        pk = self.track.peaks
+        n = max(1, (w - 16) // self.BAR)
+        bright, dim = self.colors()
+        self.bars = []
+        idx = len(pk) * np.arange(n + 1) // n
+        mid = h / 2
+        frac = self.app.player.position()
+        self.played = int(frac * n)
+        for i in range(n):
+            seg = pk[idx[i]:max(idx[i] + 1, idx[i + 1])]
+            v = float(seg.max()) if len(seg) else 0.0
+            bh = max(1.5, v * (mid - 10))
+            x0 = 8 + i * self.BAR
+            self.bars.append(c.create_rectangle(x0, mid - bh, x0 + self.BAR - 1, mid + bh, width=0,
+                                                fill=bright if i < self.played else dim))
+        x = 8 + frac * n * self.BAR
+        self.playhead = c.create_line(x, 0, x, h, fill="#ffffff", width=2)
+
+    def update_playhead(self, frac):
+        if not self.bars:
+            return
+        n = len(self.bars)
+        new = int(frac * n)
+        if new != self.played:
+            bright, dim = self.colors()
+            lo, hi = sorted((self.played, new))
+            col = bright if new > self.played else dim
+            for i in range(lo, min(hi, n)):
+                self.canvas.itemconfigure(self.bars[i], fill=col)
+            self.played = new
+        x = 8 + frac * n * self.BAR
+        self.canvas.coords(self.playhead, x, 0, x, self.canvas.winfo_height())
+
+    def _seek(self, e):
+        n = max(1, len(self.bars))
+        self.app.seek((e.x - 8) / (n * self.BAR))
+
+    def destroy(self):
+        self.frame.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Master fader with L/R meters and a latching clip light
+# ---------------------------------------------------------------------------
+
+class MasterFader:
+    W, H = 132, 196
+    TOP, BOTTOM = 10, 178
+    FX = 66     # fader centre
+    MX = 100    # meters
+
+    def __init__(self, app, parent):
+        self.app = app
+        self.pos = db_pos(0.0)
+        self.levels = [0.0, 0.0]
+        self.card = ctk.CTkFrame(parent, fg_color="#1a1d22", border_color=BORDER2, border_width=1,
+                                 corner_radius=10)
+        top = ctk.CTkFrame(self.card, fg_color="transparent")
+        top.pack(fill="x", padx=12, pady=(12, 4))
+        ctk.CTkLabel(top, text="Master", font=font(14, "bold"), text_color=TEXT).pack(side="left")
+        self.clip_btn = ctk.CTkButton(top, text="CLIP", compound="left", width=62, height=26, corner_radius=6,
+                                      font=font(10, "bold", True), fg_color="transparent",
+                                      border_width=1, command=self.reset_clip)
+        self.clip_btn.pack(side="right")
+        self.clip_shown = None
+        self.canvas = tk.Canvas(self.card, width=self.W, height=self.H, bg="#1a1d22",
+                                highlightthickness=0, cursor="sb_v_double_arrow")
+        self.canvas.pack(padx=8)
+        self.db_lbl = ctk.CTkLabel(self.card, text="0.0 dB", font=font(13, mono=True),
+                                   text_color=ACCENT_SOFT)
+        self.db_lbl.pack(pady=(2, 10))
+        c = self.canvas
+        for e in ("<Button-1>", "<B1-Motion>"):
+            c.bind(e, self._drag)
+        c.bind("<Double-Button-1>", lambda e: self.set_pos(db_pos(0.0)))
+        c.bind("<MouseWheel>", lambda e: self.set_pos(self.pos + (0.02 if e.delta > 0 else -0.02)))
+        c.bind("<Button-4>", lambda e: self.set_pos(self.pos + 0.02))
+        c.bind("<Button-5>", lambda e: self.set_pos(self.pos - 0.02))
+        self._draw_static()
+        self.set_pos(self.pos)
+        self.show_clip(False)
+
+    def y_of(self, pos):
+        return self.BOTTOM - pos * (self.BOTTOM - self.TOP)
+
+    def _draw_static(self):
+        c = self.canvas
+        for p, txt in zip((1.0, 0.8, 0.6, 0.4, 0.2, 0.0), ("+6", "0", "−6", "−12", "−24", "−∞")):
+            y = self.y_of(p)
+            c.create_text(34, y, text=txt, anchor="e", fill=DIM, font=(MONO, 9))
+            c.create_line(38, y, 44, y, fill=BORDER2)
+        c.create_rectangle(self.FX - 7, self.TOP, self.FX + 7, self.BOTTOM, fill="#0f1114",
+                           outline=BORDER2)
+        self.fill = c.create_rectangle(self.FX - 6, self.TOP, self.FX + 6, self.BOTTOM, fill=ACCENT,
+                                       width=0)
+        self.cap = c.create_rectangle(0, 0, 0, 0, fill="#e6e8eb", outline="#9aa0a8")
+        self.cap_line = c.create_line(0, 0, 0, 0, fill="#0f1114", width=2)
+        self.meters = []
+        for i in range(2):
+            x = self.MX + i * 10
+            c.create_rectangle(x, self.TOP, x + 6, self.BOTTOM, fill="#0f1114", width=0)
+            segs = [c.create_rectangle(x, self.BOTTOM, x + 6, self.BOTTOM, fill=col, width=0)
+                    for col in (GREEN, AMBER, RED)]
+            self.meters.append(segs)
+        c.create_text(self.MX + 3, self.BOTTOM + 9, text="L", fill=DIM, font=(MONO, 8))
+        c.create_text(self.MX + 13, self.BOTTOM + 9, text="R", fill=DIM, font=(MONO, 8))
+
+    def _drag(self, e):
+        self.set_pos((self.BOTTOM - e.y) / (self.BOTTOM - self.TOP))
+
+    def set_pos(self, pos):
+        self.pos = max(0.0, min(1.0, pos))
+        db = fader_db(self.pos)
+        self.app.player.master = 0.0 if db == -math.inf else 10 ** (db / 20)
+        y = self.y_of(self.pos)
+        c = self.canvas
+        c.coords(self.fill, self.FX - 6, y, self.FX + 6, self.BOTTOM)
+        c.coords(self.cap, self.FX - 22, y - 12, self.FX + 22, y + 12)
+        c.coords(self.cap_line, self.FX - 15, y, self.FX + 15, y)
+        self.db_lbl.configure(text="−∞ dB" if db == -math.inf else f"{db:+.1f} dB".replace("-", "−"))
+
+    def set_levels(self, peaks):
+        for i in range(2):
+            v = float(peaks[i]) if i < len(peaks) else 0.0
+            self.levels[i] = max(v, self.levels[i] * 0.82)
+            db = 20 * math.log10(self.levels[i]) if self.levels[i] > 1e-5 else -100
+            top = db_pos(db)
+            bounds = (0.0, db_pos(-6), db_pos(0), 1.0)
+            for seg, lo, hi in zip(self.meters[i], bounds, bounds[1:]):
+                if top <= lo:
+                    self.canvas.coords(seg, 0, 0, 0, 0)
+                else:
+                    x = self.MX + i * 10
+                    self.canvas.coords(seg, x, self.y_of(min(top, hi)), x + 6, self.y_of(lo))
+
+    def show_clip(self, on):
+        if on == self.clip_shown:
+            return
+        self.clip_shown = on
+        if on:
+            self.clip_btn.configure(text_color=RED_TXT, border_color=RED_BORDER, fg_color=RED_BG,
+                                    hover_color=RED_BG, image=icon("dot", RED, 10))
+        else:
+            self.clip_btn.configure(text_color=DIM, border_color=BORDER2, fg_color="transparent",
+                                    hover_color=BTN_HOVER, image=icon("dot", "#4a2a2a", 10))
+
+    def reset_clip(self):
+        self.app.player.clip = False
+        self.show_clip(False)
+
+
+# ---------------------------------------------------------------------------
+# Main window
+# ---------------------------------------------------------------------------
+
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.player = engine.Player()
+        self.events = queue.Queue()
+        self.player.on_render_done = lambda: self.events.put(("render",))
+        self.lanes = []
+        self.loading = 0
+        self.speed, self.semis, self.manual_cents = 1.0, 0, 0.0
+        self.auto = False
+        self.auto_result = None      # (correction_cents, A_hz, confidence)
+        self.analysing = False
+        self._analysis_gen = 0
+        self._stretch_job = None
+        self.export_dialog = None
+        self.last_dir = str(Path.home() / "Music")
+        self.dnd = TkinterDnD is not None
+
+        root.title(APP_NAME)
+        root.configure(fg_color=BG)
+        sh = root.winfo_screenheight()
+        root.geometry(f"1280x{max(700, min(1000, sh - 90))}+40+20")
+        root.minsize(980, 680)
+        ico = engine.BASE_DIR / "assets" / "icon.ico"
+        if sys.platform == "win32" and ico.exists():
+            try:
+                root.iconbitmap(str(ico))
+            except Exception:
+                pass
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(1, weight=1)
+
+        self._build_header()
+        main = ctk.CTkFrame(root, fg_color=BG, corner_radius=0)
+        main.grid(row=1, column=0, sticky="nsew", padx=24, pady=(16, 18))
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(1, weight=1)
+        self._build_dropzone(main)
+        self._build_tracks(main)
+        self._build_master(main)
+
+        if not self.player.open_stream():
+            self.status.configure(text="No audio output found – playback is off, export still works")
+
+        if self.dnd:
+            try:
+                root.drop_target_register(DND_FILES)
+                root.dnd_bind("<<Drop>>", self._on_drop)
+                root.dnd_bind("<<DropEnter>>", lambda e: (self._drop_highlight(True), e.action)[1])
+                root.dnd_bind("<<DropLeave>>", lambda e: (self._drop_highlight(False), e.action)[1])
+                self.dnd = True
+            except Exception:
+                self.dnd = False
+                traceback.print_exc()
+            self._draw_drop()
+        root.bind_all("<space>", self._on_space)
+        root.bind_all("<Home>", lambda e: None if self._typing() else self.seek(0))
+        root.protocol("WM_DELETE_WINDOW", self.close)
+        self.refresh_all()
+        root.after(40, self._tick)
+
+    # ----- layout -----
+    def _build_header(self):
+        bar = ctk.CTkFrame(self.root, fg_color=HEADER, corner_radius=0, height=64)
+        bar.grid(row=0, column=0, sticky="ew")
+        bar.grid_columnconfigure(1, weight=1)
+        left = ctk.CTkFrame(bar, fg_color="transparent")
+        left.grid(row=0, column=0, padx=24, pady=14, sticky="w")
+        logo = tk.Canvas(left, width=24, height=24, bg=HEADER, highlightthickness=0)
+        for x, h in ((3, 4), (8, 12), (13, 20), (18, 10), (23, 4)):
+            logo.create_line(x - 1, 12 - h / 2, x - 1, 12 + h / 2, fill=ACCENT, width=2, capstyle="round")
+        logo.pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(left, text=APP_NAME, font=font(16, "bold"), text_color=TEXT).pack(side="left")
+        self.song_sep = ctk.CTkLabel(left, text="  ·  ", font=font(14), text_color=MUTED)
+        self.song_lbl = ctk.CTkLabel(left, text="", font=font(14), text_color=SOFT)
+        self.status = ctk.CTkLabel(bar, text="", font=font(12), text_color=AMBER_TXT)
+        self.status.grid(row=0, column=1, sticky="e", padx=12)
+        right = ctk.CTkFrame(bar, fg_color="transparent")
+        right.grid(row=0, column=2, padx=24, pady=14, sticky="e")
+        ToolButton(right, "Open…", self.open_dialog).pack(side="left", padx=4)
+        ToolButton(right, "Clear all", self.clear_all).pack(side="left", padx=4)
+        self.export_btn = ToolButton(right, "Export…", self.open_export, primary=True,
+                                     image=icon("export", ACCENT_TXT, 15), compound="left")
+        self.export_btn.pack(side="left", padx=(4, 0))
+        line = ctk.CTkFrame(self.root, fg_color=BORDER, height=1, corner_radius=0)
+        line.grid(row=0, column=0, sticky="sew")
+
+    def _build_dropzone(self, parent):
+        self.drop = tk.Canvas(parent, height=64, bg=BG, highlightthickness=0, cursor="hand2")
+        self.drop.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+        self.drop.bind("<Configure>", lambda e: self._draw_drop())
+        self.drop.bind("<Button-1>", lambda e: self.open_dialog())
+        self._drop_hot = False
+
+    def _draw_drop(self):
+        c = self.drop
+        c.delete("all")
+        w, h = c.winfo_width(), c.winfo_height()
+        hot = self._drop_hot
+        c.create_rectangle(1, 1, w - 2, h - 2, outline=ACCENT if hot else "#3a414a", dash=(6, 4),
+                           width=2 if hot else 1.5, fill="#182033" if hot else PANEL)
+        if self.loading:
+            msg = f"Loading {self.loading} file{'s' if self.loading > 1 else ''}…"
+        elif hot:
+            msg = "Drop to add tracks"
+        elif self.dnd:
+            msg = "Drop audio files here to add tracks · WAV, FLAC, MP3, M4A, OGG — or click to browse"
+        else:
+            msg = "Click to add audio files · WAV, FLAC, MP3, M4A, OGG"
+        c.create_text(w / 2 + 12, h / 2, text=msg, fill=TEXT2 if hot else "#a8aeb7", font=(UI, 11))
+        tx = w / 2 - c.tk.call("font", "measure", (UI, 11), msg) / 2 - 8
+        c.create_line(tx, h / 2 + 7, tx, h / 2 - 7, fill=ACCENT, width=2, arrow="last", arrowshape=(6, 6, 3))
+
+    def _drop_highlight(self, on):
+        self._drop_hot = on
+        self._draw_drop()
+
+    def _build_tracks(self, parent):
+        box = ctk.CTkFrame(parent, fg_color=PANEL, border_color=BORDER, border_width=1, corner_radius=12)
+        box.grid(row=1, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+        box.grid_rowconfigure(1, weight=1)
+        ruler = ctk.CTkFrame(box, fg_color="transparent", height=30)
+        ruler.grid(row=0, column=0, sticky="ew", padx=2, pady=(2, 0))
+        ruler.grid_columnconfigure(1, weight=1)
+        self.count_lbl = ctk.CTkLabel(ruler, text="NO TRACKS", font=font(11), text_color=MUTED,
+                                      width=HEAD_W - 16, anchor="w")
+        self.count_lbl.grid(row=0, column=0, padx=(14, 2))
+        self.ruler = tk.Canvas(ruler, height=26, bg=PANEL, highlightthickness=0)
+        self.ruler.grid(row=0, column=1, sticky="ew")
+        self.ruler.bind("<Configure>", lambda e: self.draw_ruler())
+        ctk.CTkFrame(box, fg_color=BORDER, height=1, corner_radius=0).grid(row=0, column=0, sticky="sew")
+        self.lanes_box = ctk.CTkScrollableFrame(box, fg_color=PANEL, corner_radius=0,
+                                                scrollbar_button_color=BORDER2,
+                                                scrollbar_button_hover_color="#3a414a")
+        self.lanes_box.grid(row=1, column=0, sticky="nsew", padx=2, pady=(0, 2))
+        self.lanes_box.grid_columnconfigure(0, weight=1)
+        self.empty = ctk.CTkLabel(self.lanes_box, font=font(14), text_color=MUTED, justify="center",
+                                  text="No tracks yet.\nDrop a song, a karaoke file or a set of stems "
+                                       "above — or click Open…")
+
+    def _build_master(self, parent):
+        box = ctk.CTkFrame(parent, fg_color=PANEL, border_color=BORDER2, border_width=1, corner_radius=12)
+        box.grid(row=2, column=0, sticky="ew", pady=(16, 0))
+        box.grid_columnconfigure(0, weight=1)
+        hdr = ctk.CTkFrame(box, fg_color="transparent")
+        hdr.grid(row=0, column=0, sticky="ew", padx=20, pady=(12, 2))
+        ctk.CTkLabel(hdr, text="MASTER", font=font(11), text_color=MUTED).pack(side="left")
+        ctk.CTkLabel(hdr, text="SPEED, PITCH & TUNING APPLY TO ALL TRACKS", font=font(11),
+                     text_color=MUTED).pack(side="right")
+
+        body = ctk.CTkFrame(box, fg_color="transparent")
+        body.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 16))
+        body.grid_columnconfigure(0, weight=1)
+        left = ctk.CTkFrame(body, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+        left.grid_columnconfigure(0, weight=1)
+
+        # transport
+        tr = ctk.CTkFrame(left, fg_color="transparent")
+        tr.grid(row=0, column=0, pady=(0, 14))
+        self.time_lbl = ctk.CTkLabel(tr, text="0:00 / 0:00", font=font(15, mono=True), text_color=TEXT2,
+                                     width=150, anchor="e")
+        self.time_lbl.grid(row=0, column=0, padx=(0, 18))
+        ctk.CTkButton(tr, text="", image=icon("back", TEXT2, 16), width=44, height=44, corner_radius=22,
+                      fg_color=BTN, hover_color=BTN_HOVER, border_color=BORDER2, border_width=1,
+                      text_color=TEXT2, command=lambda: self.seek(0)).grid(row=0, column=1, padx=9)
+        self.play_btn = ctk.CTkButton(tr, text="", image=icon("play", ACCENT_TXT, 28), width=72, height=72,
+                                      corner_radius=36, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                      text_color=ACCENT_TXT, command=self.toggle_play)
+        self.play_btn.grid(row=0, column=2, padx=9)
+        self.loop_btn = ctk.CTkButton(tr, text="", width=44, height=44, corner_radius=22,
+                                      border_width=1, command=self.toggle_loop)
+        self.loop_btn.grid(row=0, column=3, padx=9)
+        ctk.CTkLabel(tr, text="", width=150).grid(row=0, column=4, padx=(18, 0))
+        self._style_loop()
+
+        # speed / pitch / fine tune + master fader
+        cards = ctk.CTkFrame(left, fg_color="transparent")
+        cards.grid(row=1, column=0, sticky="ew")
+        for i in range(3):
+            cards.grid_columnconfigure(i, weight=1, uniform="card")
+
+        self.speed_val, self.speed_slider = self._card(
+            cards, 0, "Speed", 0.5, 1.5, 20, 1.0, self.on_speed, ("0.5×", "1.0×", "1.5×"))
+        self.pitch_val, self.pitch_slider = self._card(
+            cards, 1, "Pitch", -6, 6, 12, 0, self.on_pitch, ("−6", "0", "+6"))
+
+        # fine tune card (with Auto 440)
+        fc = ctk.CTkFrame(cards, fg_color=CARD, border_color=BORDER, border_width=1, corner_radius=10)
+        fc.grid(row=0, column=2, sticky="nsew", padx=(8, 0))
+        self.fine_card = fc
+        top = ctk.CTkFrame(fc, fg_color="transparent")
+        top.pack(fill="x", padx=16, pady=(12, 4))
+        ctk.CTkLabel(top, text="Fine tune", font=font(14, "bold"), text_color=TEXT).pack(side="left")
+        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color="#3a3220",
+                     corner_radius=4, height=18).pack(side="right")
+        self.auto_var = tk.BooleanVar(value=False)
+        self.auto_chk = ctk.CTkCheckBox(top, text="Auto 440", variable=self.auto_var, command=self.on_auto,
+                                        font=font(12), text_color=SOFT, checkbox_width=18,
+                                        checkbox_height=18, corner_radius=4, border_width=2,
+                                        fg_color=GREEN, hover_color=GREEN, border_color="#4a515b",
+                                        checkmark_color=ACCENT_TXT)
+        self.auto_chk.pack(side="right", padx=(0, 6))
+        mid = ctk.CTkFrame(fc, fg_color="transparent")
+        mid.pack(fill="x", padx=16)
+        self.fine_slider = ctk.CTkSlider(mid, from_=-50, to=50, number_of_steps=100, height=18,
+                                         command=self.on_fine)
+        self.fine_slider.set(0)
+        self.fine_slider.pack(side="left", fill="x", expand=True)
+        self.fine_val = ctk.CTkLabel(mid, text="0 ct", font=font(13, "bold", True), width=64, anchor="e")
+        self.fine_val.pack(side="right")
+        self.fine_scale = self._marks(fc, ("−50 ct", "0", "+50 ct"))
+        self.fine_info = ctk.CTkLabel(fc, text="", font=font(12), anchor="w", height=20, compound="left")
+        self._style_fine()
+
+        bottom = ctk.CTkFrame(cards, fg_color="transparent")
+        bottom.grid(row=1, column=0, columnspan=3, pady=(12, 0))
+        ctk.CTkButton(bottom, text="Reset speed & pitch", height=32, corner_radius=6, font=font(13),
+                      fg_color="transparent", hover_color=BTN_HOVER, border_color=BORDER2,
+                      border_width=1, text_color="#a8aeb7", command=self.reset_stretch).pack(side="left")
+        self.busy_lbl = ctk.CTkLabel(bottom, text="", font=font(12), text_color=ACCENT_SOFT)
+        self.busy_lbl.pack(side="left", padx=14)
+
+        self.fader = MasterFader(self, body)
+        self.fader.card.grid(row=0, column=1, sticky="ns")
+
+    def _card(self, parent, col, title, lo, hi, steps, value, command, marks):
+        card = ctk.CTkFrame(parent, fg_color=CARD, border_color=BORDER, border_width=1, corner_radius=10)
+        card.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 8, 8 if col < 2 else 0))
+        top = ctk.CTkFrame(card, fg_color="transparent")
+        top.pack(fill="x", padx=16, pady=(12, 4))
+        ctk.CTkLabel(top, text=title, font=font(14, "bold"), text_color=TEXT).pack(side="left")
+        val = ctk.CTkLabel(top, text="", font=font(13, "bold", True), text_color=ACCENT_SOFT)
+        val.pack(side="right")
+        sl = ctk.CTkSlider(card, from_=lo, to=hi, number_of_steps=steps, height=18, command=command,
+                           progress_color=ACCENT, button_color=TEXT2, button_hover_color="#ffffff",
+                           fg_color=BORDER2)
+        sl.set(value)
+        sl.pack(fill="x", padx=16)
+        self._marks(card, marks).pack(fill="x", padx=16, pady=(4, 12))
+        return val, sl
+
+    @staticmethod
+    def _marks(parent, marks):
+        sc = ctk.CTkFrame(parent, fg_color="transparent")
+        lo, mid, hi = (ctk.CTkLabel(sc, text=m, font=font(11, mono=True), text_color=DIM, height=20)
+                       for m in marks)
+        lo.pack(side="left")
+        hi.pack(side="right")
+        mid.pack(side="left", expand=True)
+        return sc
+
+    # ----- styling helpers -----
+    def _style_loop(self):
+        on = self.player.loop
+        self.loop_btn.configure(fg_color="#1d2333" if on else BTN, border_color=ACCENT if on else BORDER2,
+                                image=icon("loop", ACCENT_SOFT if on else TEXT2, 18),
+                                hover_color="#232b40" if on else BTN_HOVER)
+
+    def _style_fine(self):
+        auto = self.auto
+        self.fine_card.configure(fg_color=GREEN_BG if auto else CARD,
+                                 border_color=GREEN_BORDER if auto else BORDER)
+        col = GREEN if auto else ACCENT
+        self.fine_slider.configure(progress_color=col, button_color=col if auto else TEXT2,
+                                   button_hover_color=col if auto else "#ffffff",
+                                   fg_color="#23362e" if auto else BORDER2,
+                                   state="disabled" if auto else "normal")
+        cents = self.current_cents()
+        self.fine_val.configure(text=cents_text(cents),
+                                text_color=GREEN if auto else ACCENT_SOFT)
+        if not auto:
+            self.fine_info.pack_forget()
+            self.fine_scale.pack(fill="x", padx=16, pady=(4, 12))
+            return
+        self.fine_scale.pack_forget()
+        self.fine_info.pack(fill="x", padx=16, pady=(4, 12))
+        if self.analysing:
+            self.fine_info.configure(text="Analysing the tuning…", text_color=GREEN_TXT, image=None)
+        elif not self.lanes:
+            self.fine_info.configure(text="  Auto 440 is on – add a file to analyse it",
+                                     text_color=GREEN_TXT, image=icon("check", GREEN, 13))
+        elif not self.auto_result or self.auto_result[1] is None or self.auto_result[2] < 0.12:
+            self.fine_info.configure(text="  Couldn't detect the tuning clearly – left unchanged",
+                                     text_color=AMBER_TXT, image=icon("warn", AMBER, 13))
+        elif self.auto_result[0] != 0:
+            self.fine_info.configure(text=f"  Set by Auto 440 · file tuned to A = {self.auto_result[1]:.1f} Hz",
+                                     text_color=GREEN_TXT, image=icon("check", GREEN, 13))
+        else:
+            self.fine_info.configure(text=f"  Already in tune · A = {self.auto_result[1]:.1f} Hz",
+                                     text_color=GREEN_TXT, image=icon("check", GREEN, 13))
+
+    # ----- files -----
+    def open_dialog(self):
+        paths = filedialog.askopenfilenames(
+            parent=self.root, title="Add audio files", initialdir=self.last_dir,
+            filetypes=[("Audio files", " ".join("*" + e for e in sorted(engine.AUDIO_EXTS))),
+                       ("All files", "*.*")])
+        if paths:
+            self.add_files(paths)
+
+    def _on_drop(self, event):
+        self._drop_highlight(False)
+        self.add_files(self.root.tk.splitlist(event.data))
+        return event.action
+
+    def add_files(self, paths):
+        files = []
+        for p in paths:
+            p = Path(p)
+            if p.is_dir():
+                files += sorted(q for q in p.iterdir() if q.suffix.lower() in engine.AUDIO_EXTS)
+            elif p.suffix.lower() in engine.AUDIO_EXTS:
+                files.append(p)
+        have = {str(Path(l.track.path).resolve()) for l in self.lanes}
+        files = [f for f in dict.fromkeys(files) if str(f.resolve()) not in have]
+        if not files:
+            if paths:
+                self.flash("Those files are already loaded or aren't audio files.")
+            return
+        self.last_dir = str(files[0].parent)
+        self.loading += len(files)
+        self._draw_drop()
+        labels = engine.load_labels()
+
+        def work(f):
+            try:
+                audio = engine.decode(f)
+                self.events.put(("loaded", f, audio, labels.get(str(f.resolve()))))
+            except Exception as e:
+                self.events.put(("load_error", f, str(e)))
+
+        for f in files:
+            threading.Thread(target=work, args=(f,), daemon=True).start()
+
+    def _add_track(self, path, audio, label):
+        track = engine.Track(path, audio, label)
+        lane = Lane(self, self.lanes_box, track, TRACK_COLORS[len(self.lanes) % len(TRACK_COLORS)])
+        self.lanes.append(lane)
+        self.player.add(track)
+        self.refresh_all()
+        if self.auto:
+            self.start_analysis()
+        self._update_busy()
+
+    def remove_lane(self, lane):
+        self.player.remove(lane.track)
+        lane.destroy()
+        self.lanes.remove(lane)
+        self.refresh_all()
+        if self.auto:
+            self.start_analysis()
+
+    def clear_all(self):
+        self.player.clear()
+        for lane in self.lanes:
+            lane.destroy()
+        self.lanes = []
+        self.auto_result = None
+        self.refresh_all()
+        self._style_fine()
+
+    def refresh_all(self):
+        for i, lane in enumerate(self.lanes):
+            lane.frame.grid(row=i, column=0, sticky="ew")
+        if self.lanes:
+            self.empty.grid_forget()
+            n = len(self.lanes)
+            self.count_lbl.configure(text=f"{n} TRACK{'S' if n > 1 else ''}")
+            self.song_lbl.configure(text=engine.song_name([l.track.path for l in self.lanes]))
+            self.song_sep.pack(side="left")
+            self.song_lbl.pack(side="left")
+        else:
+            self.empty.grid(row=0, column=0, pady=60)
+            self.count_lbl.configure(text="NO TRACKS")
+            self.song_sep.pack_forget()
+            self.song_lbl.pack_forget()
+        self.refresh_lanes()
+        self.draw_ruler()
+
+    def refresh_lanes(self):
+        gains = self.player.gains()
+        for lane, g in zip(self.lanes, gains):
+            lane.refresh_buttons()
+            lane.set_silent(g <= 0)
+
+    def draw_ruler(self):
+        c = self.ruler
+        c.delete("all")
+        n = self.player.length()
+        if not n or not self.lanes:
+            return
+        w = self.lanes[0].canvas.winfo_width()
+        if w <= 1:
+            w = c.winfo_width() - 16
+        bars = max(1, (w - 16) // Lane.BAR)
+        span = bars * Lane.BAR
+        dur = n / engine.SR
+        step = next((s for s in (5, 10, 15, 20, 30, 60, 120, 300) if dur / s <= 9), 600)
+        t = 0
+        while t <= dur:
+            x = 8 + span * t / dur
+            c.create_line(x, 20, x, 26, fill=BORDER2)
+            c.create_text(x + 3, 12, text=fmt_time(t), anchor="w", fill=MUTED, font=(MONO, 9))
+            t += step
+        self._ruler_len = n
+
+    # ----- transport -----
+    def toggle_play(self):
+        if self.player.stream is None:
+            self.flash(self.player.device_error and "No audio output device found."
+                       or "No audio output device found.")
+            return
+        self.player.toggle()
+
+    def toggle_loop(self):
+        self.player.loop = not self.player.loop
+        self._style_loop()
+
+    def seek(self, frac):
+        self.player.seek(frac)
+        self._update_positions()
+
+    def _typing(self):
+        w = self.root.focus_get()
+        return isinstance(w, tk.Entry)
+
+    def _on_space(self, e):
+        if self._typing():
+            return None
+        self.toggle_play()
+        return "break"
+
+    # ----- speed / pitch / tuning -----
+    def current_cents(self):
+        if self.auto:
+            return self.auto_result[0] if self.auto_result else 0.0
+        return self.manual_cents
+
+    def on_speed(self, v):
+        self.speed = round(float(v), 2)
+        self.speed_val.configure(text=f"{self.speed:.2f}×")
+        self._schedule_stretch()
+
+    def on_pitch(self, v):
+        self.semis = int(round(float(v)))
+        self.pitch_val.configure(text=f"{engine.fmt_semitones(self.semis)} st".replace("-", "−"))
+        self._schedule_stretch()
+
+    def on_fine(self, v):
+        if self.auto:
+            return
+        self.manual_cents = round(float(v))
+        self._style_fine()
+        self._schedule_stretch()
+
+    def on_auto(self):
+        self.auto = bool(self.auto_var.get())
+        if self.auto:
+            if self.lanes and self.auto_result is None:
+                self.start_analysis()
+            self.fine_slider.set(self.current_cents())
+        else:
+            self.fine_slider.configure(state="normal")
+            self.fine_slider.set(self.manual_cents)
+        self._style_fine()
+        self._schedule_stretch(0)
+
+    def start_analysis(self):
+        self.auto_result = None
+        if not self.lanes:
+            self._style_fine()
+            return
+        self.analysing = True
+        self._analysis_gen += 1
+        gen = self._analysis_gen
+        tracks = [l.track for l in self.lanes]
+        self._style_fine()
+
+        def work():
+            try:
+                res = engine.analyse_tuning(tracks)
+            except Exception:
+                traceback.print_exc()
+                res = (0.0, None, 0.0)
+            self.events.put(("analysed", gen, res))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def reset_stretch(self):
+        self.speed_slider.set(1.0)
+        self.pitch_slider.set(0)
+        self.on_speed(1.0)
+        self.on_pitch(0)
+        if not self.auto:
+            self.fine_slider.set(0)
+            self.on_fine(0)
+
+    def _schedule_stretch(self, delay=280):
+        if self._stretch_job:
+            self.root.after_cancel(self._stretch_job)
+        self._stretch_job = self.root.after(delay, self.apply_stretch)
+
+    def apply_stretch(self):
+        self._stretch_job = None
+        self.player.set_stretch(self.speed, self.semis + self.current_cents() / 100.0)
+        self._update_busy()
+
+    def _update_busy(self):
+        if self.player.render_busy > 0:
+            self.busy_lbl.configure(text="Applying speed & pitch…")
+        elif self.player.render_error:
+            self.busy_lbl.configure(text="Couldn't apply speed & pitch – see the log", text_color=AMBER_TXT)
+        else:
+            self.busy_lbl.configure(text="")
+
+    # ----- loop -----
+    def _tick(self):
+        try:
+            self._handle_events()
+            self._update_positions()
+            self.fader.set_levels(self.player.take_meter())
+            self.fader.show_clip(self.player.clip)
+            playing = self.player.playing
+            if playing != getattr(self, "_shown_playing", None):
+                self._shown_playing = playing
+                self.play_btn.configure(image=icon("pause" if playing else "play", ACCENT_TXT, 28))
+        except Exception:
+            traceback.print_exc()
+        self.root.after(33, self._tick)
+
+    def _update_positions(self):
+        frac = self.player.position()
+        n = self.player.length()
+        for lane in self.lanes:
+            lane.update_playhead(frac)
+        sr = engine.SR
+        self.time_lbl.configure(text=f"{fmt_time(frac * n / sr)} / {fmt_time(n / sr)}")
+        if getattr(self, "_ruler_len", None) != n:
+            self.draw_ruler()
+
+    def _handle_events(self):
+        while True:
+            try:
+                ev = self.events.get_nowait()
+            except queue.Empty:
+                return
+            kind = ev[0]
+            if kind == "loaded":
+                self.loading -= 1
+                self._draw_drop()
+                self._add_track(ev[1], ev[2], ev[3])
+            elif kind == "load_error":
+                self.loading -= 1
+                self._draw_drop()
+                self.flash(f"Couldn't open {Path(ev[1]).name}")
+                print("load error", ev[1], ev[2])
+            elif kind == "render":
+                self._update_busy()
+                self.draw_ruler()
+            elif kind == "analysed":
+                if ev[1] == self._analysis_gen:
+                    self.analysing = False
+                    self.auto_result = ev[2]
+                    if self.auto:
+                        self.fine_slider.configure(state="normal")
+                        self.fine_slider.set(self.current_cents())
+                    self._style_fine()
+                    self._schedule_stretch(0)
+            elif kind == "export_done" and self.export_dialog:
+                self.export_dialog.done(ev[1], ev[2])
+            elif kind == "export_progress" and self.export_dialog:
+                self.export_dialog.progress(ev[1])
+
+    def flash(self, msg, ms=4000):
+        self.status.configure(text=msg)
+        self.root.after(ms, lambda: self.status.configure(
+            text="" if self.player.stream is not None else "No audio output found – playback is off, export still works"))
+
+    # ----- export -----
+    def open_export(self):
+        if not self.lanes:
+            self.flash("Add some audio first.")
+            return
+        if self.export_dialog and self.export_dialog.win.winfo_exists():
+            self.export_dialog.win.focus()
+            return
+        self.export_dialog = ExportDialog(self)
+
+    def close(self):
+        self.player.close()
+        self.root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Export dialog
+# ---------------------------------------------------------------------------
+
+class ExportDialog:
+    def __init__(self, app):
+        self.app = app
+        self.busy = False
+        self.written = []
+        win = self.win = ctk.CTkToplevel(app.root)
+        win.title("Export")
+        win.configure(fg_color=HEADER)
+        win.resizable(False, False)
+        win.transient(app.root)
+        win.geometry("+%d+%d" % (app.root.winfo_rootx() + 360, app.root.winfo_rooty() + 90))
+
+        lanes = app.lanes
+        self.folder = str(Path(lanes[0].track.path).parent)
+        gains = app.player.gains()
+        self.tags = engine.tags(app.speed, app.semis, app.current_cents(), app.auto)
+
+        body = ctk.CTkFrame(win, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=24, pady=(18, 0))
+        ctk.CTkLabel(body, text="Export", font=font(18, "bold"), text_color=TEXT).pack(anchor="w")
+
+        self._section(body, "WHAT TO EXPORT")
+        self.mode = tk.StringVar(value="mix")
+        for value, title, sub in (("mix", "Mix as you hear it", "One file. Mute, solo and volume are applied."),
+                                  ("each", "Each track separately",
+                                   "One file per track, same speed and pitch.")):
+            f = ctk.CTkFrame(body, fg_color="#1a1d22", border_color=BORDER2, border_width=1, corner_radius=10)
+            f.pack(fill="x", pady=4)
+            rb = ctk.CTkRadioButton(f, text=title, value=value, variable=self.mode, font=font(13, "bold"),
+                                    text_color=TEXT, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                    border_color="#4a515b", command=self.refresh)
+            rb.pack(anchor="w", padx=14, pady=(8, 0))
+            ctk.CTkLabel(f, text=sub, font=font(12), text_color=MUTED).pack(anchor="w", padx=44, pady=(0, 8))
+            if len(lanes) == 1 and value == "each":
+                rb.configure(state="disabled")
+
+        self._section(body, "FORMAT")
+        self.fmt = ctk.CTkSegmentedButton(body, values=["WAV", "FLAC", "MP3 320"], height=40, font=font(13),
+                                          selected_color="#33405e", selected_hover_color="#3c4b6e",
+                                          unselected_color=BTN, unselected_hover_color=BTN_HOVER,
+                                          text_color=TEXT, command=lambda v: self.refresh())
+        self.fmt.set("WAV")
+        self.fmt.pack(fill="x")
+
+        self._section(body, "INCLUDED CHANGES")
+        chips = ctk.CTkFrame(body, fg_color="transparent")
+        chips.pack(fill="x")
+        items = []
+        if abs(app.speed - 1) > 1e-6:
+            items.append((f"Speed {app.speed:.2f}×", True))
+        if app.semis:
+            items.append((f"Pitch {engine.fmt_semitones(app.semis)} st".replace("-", "−"), True))
+        if app.auto and app.current_cents():
+            items.append(("Auto 440", True))
+        elif not app.auto and round(app.manual_cents):
+            items.append((f"Fine {app.manual_cents:+.0f} ct".replace("-", "−"), True))
+        for lane, g in zip(lanes, gains):
+            if lane.track.mute:
+                items.append((f"{lane.track.label} muted", False))
+            elif g <= 0:
+                items.append((f"{lane.track.label} not soloed", False))
+        if fader_db(app.fader.pos) != 0:
+            db = fader_db(app.fader.pos)
+            items.append(("Master −∞ dB" if db == -math.inf else f"Master {db:+.1f} dB".replace("-", "−"), False))
+        if not items:
+            items.append(("No changes – a plain mix", False))
+        for text, strong in items:
+            ctk.CTkLabel(chips, text=f"  {text}  ", font=font(12, mono=True), corner_radius=12, height=26,
+                         fg_color="#222a40" if strong else "#2a2e34",
+                         text_color="#b8c7ff" if strong else "#a8aeb7").pack(side="left", padx=(0, 6))
+        if app.auto and app.semis and app.current_cents():
+            warn = ctk.CTkFrame(body, fg_color=AMBER_BG, border_color=AMBER_BORDER, border_width=1,
+                                corner_radius=8)
+            warn.pack(fill="x", pady=(8, 0))
+            ctk.CTkLabel(warn, text="  Pitch shift and Auto 440 are both on. Combining them can reduce "
+                                    "sound quality.", font=font(12), text_color=AMBER_TXT, wraplength=460,
+                         justify="left", image=icon("warn", AMBER, 15), compound="left").pack(
+                anchor="w", padx=12, pady=8)
+            self.has_warning = True
+        else:
+            self.has_warning = False
+
+        self.name_title = self._section(body, "FILE NAME")
+        self.name_var = tk.StringVar(value=engine.safe_filename(
+            "_".join([engine.song_name([l.track.path for l in lanes]), "mix"] + self.tags)))
+        self.name_entry = ctk.CTkEntry(body, textvariable=self.name_var, height=40, font=font(13, mono=True),
+                                       fg_color="#0f1114", border_color=BORDER2, text_color=TEXT)
+        self.name_entry.pack(fill="x")
+        self.name_hint = ctk.CTkLabel(body, text="", font=font(12), text_color=MUTED, anchor="w",
+                                      wraplength=470, justify="left")
+
+        loc = ctk.CTkFrame(body, fg_color="transparent")
+        loc.pack(fill="x", pady=(12, 0))
+        self.loc_lbl = ctk.CTkLabel(loc, text="", font=font(12), text_color=MUTED, anchor="w")
+        self.loc_lbl.pack(side="left", fill="x", expand=True)
+        ToolButton(loc, "Change…", self.change_folder, height=32).pack(side="right")
+
+        self.prog = ctk.CTkProgressBar(body, height=6, progress_color=ACCENT, fg_color=BORDER2)
+        self.prog.set(0)
+        self.msg = ctk.CTkLabel(body, text="", font=font(12), text_color=MUTED, anchor="w",
+                                wraplength=470, justify="left", compound="left")
+
+        ctk.CTkFrame(win, fg_color=BORDER, height=1, corner_radius=0).pack(fill="x", pady=(18, 0))
+        btns = ctk.CTkFrame(win, fg_color="transparent")
+        btns.pack(fill="x", padx=24, pady=14)
+        self.go_btn = ToolButton(btns, "Export", self.start, height=44, width=110, primary=True)
+        self.go_btn.pack(side="right")
+        self.cancel_btn = ToolButton(btns, "Cancel", self.close, height=44, width=100)
+        self.cancel_btn.pack(side="right", padx=10)
+        self.show_btn = ToolButton(btns, "Show in folder", self.show_folder, height=44)
+        win.protocol("WM_DELETE_WINDOW", self.close)
+        win.bind("<Escape>", lambda e: self.close())
+        self.refresh()
+        win.after(150, lambda: (win.grab_set() if win.winfo_exists() else None))
+
+    def _section(self, parent, text):
+        lbl = ctk.CTkLabel(parent, text=text, font=font(11), text_color=MUTED)
+        lbl.pack(anchor="w", pady=(16, 6))
+        return lbl
+
+    def fmt_key(self):
+        return "MP3" if self.fmt.get().startswith("MP3") else self.fmt.get()
+
+    def refresh(self):
+        ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3"}[self.fmt_key()]
+        if self.mode.get() == "mix":
+            self.name_title.configure(text="FILE NAME")
+            self.name_hint.pack_forget()
+            self.name_entry.pack(fill="x", after=self.name_title)
+            self.loc_lbl.configure(text=f"Saves to: {self._short(self.folder)}   ({ext})")
+        else:
+            self.name_entry.pack_forget()
+            self.name_title.configure(text="FILE NAMES")
+            first = Path(self.app.lanes[0].track.path).stem
+            self.name_hint.configure(text="Named after the original files, e.g. "
+                                          + engine.safe_filename("_".join([first] + self.tags)) + ext)
+            self.name_hint.pack(fill="x", after=self.name_title)
+            self.loc_lbl.configure(text=f"Saves to: {self._short(self.folder)}")
+
+    @staticmethod
+    def _short(path, n=46):
+        return path if len(path) <= n else "…" + path[-(n - 1):]
+
+    def change_folder(self):
+        d = filedialog.askdirectory(parent=self.win, initialdir=self.folder, title="Export to folder")
+        if d:
+            self.folder = d
+            self.refresh()
+
+    def start(self):
+        if self.busy:
+            return
+        app = self.app
+        mode, fmt = self.mode.get(), self.fmt_key()
+        ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3"}[fmt]
+        if mode == "mix":
+            name = engine.safe_filename(self.name_var.get().strip() or "mix")
+            if name.lower().endswith(ext):
+                name = name[: -len(ext)]
+            dest = engine.unique_path(Path(self.folder) / (name + ext))
+        else:
+            dest = Path(self.folder)
+        tracks = [l.track for l in app.lanes]
+        gains = app.player.gains()
+        master = app.player.master
+        speed, semis = app.speed, app.semis + app.current_cents() / 100.0
+        self.busy = True
+        self.go_btn.configure(state="disabled", text="Exporting…")
+        self.prog.pack(fill="x", pady=(14, 0))
+        self.msg.pack(fill="x", pady=(6, 0))
+        self.msg.configure(text="Rendering at full quality…", text_color=MUTED)
+
+        def work():
+            try:
+                w = engine.export(tracks, gains, master, speed, semis, mode, fmt, dest,
+                                  progress=lambda f: app.events.put(("export_progress", f)),
+                                  name_tags=self.tags)
+                app.events.put(("export_done", True, w))
+            except Exception as e:
+                traceback.print_exc()
+                app.events.put(("export_done", False, str(e)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def progress(self, f):
+        self.prog.set(f)
+
+    def done(self, ok, result):
+        self.busy = False
+        self.go_btn.configure(state="normal", text="Export")
+        if ok:
+            self.written = result
+            self.prog.set(1)
+            names = ", ".join(Path(p).name for p in result[:3]) + (" …" if len(result) > 3 else "")
+            self.msg.configure(text=f"  Saved {names}", text_color=GREEN_TXT, image=icon("check", GREEN, 13))
+            self.cancel_btn.configure(text="Close")
+            self.show_btn.pack(side="left")
+        else:
+            self.msg.configure(text=f"Export failed: {result}", text_color=AMBER_TXT, image=None)
+
+    def show_folder(self):
+        target = Path(self.written[0]) if self.written else Path(self.folder)
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["explorer", "/select,", str(target)])
+            else:
+                subprocess.Popen(["xdg-open", str(target.parent)])
+        except Exception:
+            traceback.print_exc()
+
+    def close(self):
+        if self.busy:
+            return
+        try:
+            self.win.grab_release()
+        except Exception:
+            pass
+        self.win.destroy()
+        self.app.export_dialog = None
+
+
+# ---------------------------------------------------------------------------
+
+def make_root():
+    ctk.set_appearance_mode("dark")
+    if TkinterDnD is not None:
+        class Root(ctk.CTk, TkinterDnD.DnDWrapper):
+            def __init__(self):
+                super().__init__()
+                self.TkdndVersion = TkinterDnD._require(self)
+        try:
+            return Root()
+        except Exception:
+            traceback.print_exc()
+    globals()["TkinterDnD"] = None
+    return ctk.CTk()
+
+
+def run_gui(files=(), smoketest_dir=None):
+    if sys.platform == "win32":
+        try:  # crisp text on high-DPI screens and our own taskbar icon
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("nish.player")
+        except Exception:
+            pass
+    root = make_root()
+    app = App(root)
+    if files:
+        root.after(200, lambda: app.add_files(files))
+    if smoketest_dir:
+        import smoketest
+        root.after(600, lambda: smoketest.run(app, smoketest_dir))
+    root.mainloop()
+    return app
+
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[1] == "--gui-smoketest":
+        app = run_gui(smoketest_dir=sys.argv[2])
+        sys.exit(getattr(app, "smoketest_exit", 1))
+    try:
+        run_gui(files=[a for a in sys.argv[1:] if not a.startswith("--")])
+    except Exception:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + traceback.format_exc())
+        try:
+            messagebox.showerror(APP_NAME, "Something went wrong. Details are in:\n" + str(LOG_FILE))
+        except Exception:
+            pass
+        raise

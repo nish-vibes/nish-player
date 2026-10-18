@@ -1,0 +1,528 @@
+"""NiSH Player engine: decoding, live mixing, speed/pitch rendering, Auto 440 and export.
+
+ffmpeg decodes every format and does the pitch/speed work (Rubber Band, high quality).
+sounddevice plays the live mix. No GUI code in here.
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import numpy as np
+
+import tuning
+
+FROZEN = getattr(sys, "frozen", False)
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+BIN_DIR = BASE_DIR / "bin"
+if BIN_DIR.is_dir():
+    os.environ["PATH"] = str(BIN_DIR) + os.pathsep + os.environ.get("PATH", "")
+
+DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / "NiSH Player"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+LABELS_FILE = DATA_DIR / "labels.json"
+
+SR = 44100
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+AUDIO_EXTS = {".wav", ".flac", ".mp3", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".aif", ".aiff",
+              ".wma", ".mp4", ".webm", ".mka"}
+LIMIT = 0.966  # -0.3 dBFS: ceiling for the safety limiter (live and export)
+EXPORT_LIMITER = "alimiter=limit=0.966:attack=5:release=80:level=0:latency=1"
+
+try:
+    import sounddevice as sd
+    SD_ERROR = None
+except Exception as e:  # PortAudio missing
+    sd = None
+    SD_ERROR = str(e)
+
+
+# ---------- ffmpeg helpers ----------
+
+def ffmpeg_exe():
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        raise RuntimeError("ffmpeg was not found.")
+    return exe
+
+
+def _run(cmd, input_bytes=None):
+    r = subprocess.run(cmd, input=input_bytes, capture_output=True, creationflags=_NO_WINDOW)
+    if r.returncode != 0:
+        err = (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()[-12:]
+        raise RuntimeError("ffmpeg failed:\n" + "\n".join(err))
+    return r.stdout
+
+
+_RUBBERBAND = None
+
+
+def has_rubberband():
+    global _RUBBERBAND
+    if _RUBBERBAND is None:
+        try:
+            out = subprocess.run([ffmpeg_exe(), "-hide_banner", "-filters"], capture_output=True,
+                                 text=True, creationflags=_NO_WINDOW).stdout
+            _RUBBERBAND = bool(re.search(r"\brubberband\b", out))
+        except Exception:
+            _RUBBERBAND = False
+    return _RUBBERBAND
+
+
+def decode(path):
+    """Any audio file -> float32 array (frames, 2) at 44.1 kHz."""
+    base = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(path),
+            "-vn", "-ac", "2"]
+    tail = ["-f", "f32le", "-acodec", "pcm_f32le", "-"]
+    try:
+        raw = _run(base + ["-af", f"aresample={SR}:resampler=soxr:precision=28", "-ar", str(SR)] + tail)
+    except RuntimeError:
+        raw = _run(base + ["-ar", str(SR)] + tail)
+    data = np.frombuffer(raw, dtype=np.float32)
+    if data.size < 2:
+        raise RuntimeError(f"No audio found in {Path(path).name}")
+    return data[: data.size // 2 * 2].reshape(-1, 2).copy()
+
+
+def atempo_chain(t):
+    parts = []
+    while t > 2.0:
+        parts.append(2.0)
+        t /= 2.0
+    while t < 0.5:
+        parts.append(0.5)
+        t /= 0.5
+    parts.append(t)
+    return [f"atempo={p:.6f}" for p in parts]
+
+
+def stretch_filter(speed, semitones, vocal=False):
+    """ffmpeg filter for speed + pitch (semitones may be fractional). None = unchanged."""
+    speed, semitones = float(speed), float(semitones)
+    if abs(speed - 1.0) < 1e-6 and abs(semitones) < 1e-4:
+        return None
+    ratio = 2 ** (semitones / 12)
+    if has_rubberband():
+        opts = [f"tempo={speed:.6f}", f"pitch={ratio:.6f}", "pitchq=quality",
+                "channels=together", "transients=mixed"]
+        if vocal:
+            opts.append("formant=preserved")
+        return "rubberband=" + ":".join(opts)
+    chain = [f"asetrate={SR * ratio:.3f}", f"aresample={SR}:resampler=soxr:precision=28"]
+    return ",".join(chain + atempo_chain(speed / ratio))
+
+
+def render(audio, speed, semitones, vocal=False):
+    """Speed/pitch-process a decoded (frames, 2) array. Returns a new array."""
+    filt = stretch_filter(speed, semitones, vocal)
+    if filt is None:
+        return audio
+    cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-f", "f32le", "-ar", str(SR),
+           "-ac", "2", "-i", "-", "-af", filt, "-f", "f32le", "-acodec", "pcm_f32le", "-ar", str(SR), "-"]
+    raw = _run(cmd, np.ascontiguousarray(audio, dtype=np.float32).tobytes())
+    out = np.frombuffer(raw, dtype=np.float32)
+    return out[: out.size // 2 * 2].reshape(-1, 2).copy()
+
+
+def peaks(audio, buckets=1600):
+    """Waveform overview: peak level per bucket, 0..1."""
+    mono = np.abs(audio).max(axis=1)
+    n = len(mono)
+    if n == 0:
+        return np.zeros(buckets, np.float32)
+    edges = np.linspace(0, n, buckets + 1).astype(np.int64)
+    edges[-1] = n
+    out = np.maximum.reduceat(mono, np.minimum(edges[:-1], n - 1))
+    top = float(out.max()) or 1.0
+    return (out / top).astype(np.float32)
+
+
+# ---------- names ----------
+
+STEM_NAMES = {
+    "VOX": "Vocals", "VOCALS": "Vocals", "VOCAL": "Vocals", "DRM": "Drums", "DRUMS": "Drums",
+    "BASS": "Bass", "GTR": "Guitar", "GUITAR": "Guitar", "PNO": "Piano", "PIANO": "Piano",
+    "OTH": "Other", "OTHER": "Other", "KAR": "Karaoke", "KARAOKE": "Karaoke",
+    "INST": "Instrumental", "INSTRUMENTAL": "Instrumental", "NOVOX": "Karaoke",
+}
+
+
+def guess_label(path):
+    stem = Path(path).stem
+    tokens = [t for t in re.split(r"[_\-\s.]+", stem) if t]
+    if len(tokens) > 1 and tokens[-1].upper() in STEM_NAMES:  # "Song_VOX" style suffix
+        return STEM_NAMES[tokens[-1].upper()]
+    return stem
+
+
+def is_vocal(path, label=""):
+    s = (Path(path).stem + " " + label).upper()
+    return bool(re.search(r"(^|[_\-\s])(VOX|VOCALS?)($|[_\-\s])", s))
+
+
+def song_name(paths):
+    """Common name for a set of files: 'My Song_VOX.wav' + 'My Song_DRM.wav' -> 'My Song'."""
+    stems = [Path(p).stem for p in paths]
+    if not stems:
+        return ""
+    if len(stems) == 1:
+        return stems[0]
+    prefix = os.path.commonprefix(stems)
+    prefix = re.sub(r"[_\-\s.(\[]+$", "", prefix)
+    return prefix or stems[0]
+
+
+def load_labels():
+    try:
+        return json.loads(LABELS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_label(path, label):
+    labels = load_labels()
+    key = str(Path(path).resolve())
+    if label and label != guess_label(path):
+        labels[key] = label
+    else:
+        labels.pop(key, None)
+    try:
+        LABELS_FILE.write_text(json.dumps(labels, indent=1, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def fmt_semitones(st):
+    return ("+" if st > 0 else "-" if st < 0 else "") + f"{abs(st):g}"
+
+
+def tags(speed, semis, cents, auto440):
+    t = []
+    if abs(speed - 1) > 1e-6:
+        t.append(f"{speed:.2f}".rstrip("0").rstrip(".") + "x")
+    if semis:
+        t.append(fmt_semitones(semis) + "st")
+    if auto440:
+        t.append("440hz")
+    elif abs(cents) >= 0.5:
+        t.append(fmt_semitones(round(cents)) + "ct")
+    return t
+
+
+def safe_filename(name):
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")
+    return name or "export"
+
+
+# ---------- tracks and live mixing ----------
+
+class Track:
+    _ids = 0
+
+    def __init__(self, path, audio, label=None):
+        Track._ids += 1
+        self.id = Track._ids
+        self.path = str(path)
+        self.orig = audio
+        self.label = label or guess_label(path)
+        self.peaks = peaks(audio)
+        self.volume = 1.0  # linear
+        self.mute = False
+        self.solo = False
+        self.buf = audio       # what is playing (rendered or original)
+        self.buf_key = (1.0, 0.0)
+
+    @property
+    def vocal(self):
+        return is_vocal(self.path, self.label)
+
+
+class Player:
+    """Mixes all tracks live. Speed/pitch changes are rendered in the background and
+    swapped in at the same musical position."""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.tracks = []
+        self.playing = False
+        self.loop = False
+        self.pos = 0.0          # sample index in the playing (rendered) timeline
+        self.master = 1.0       # linear master gain
+        self.speed = 1.0
+        self.semitones = 0.0    # total pitch in semitones (coarse + cents/100)
+        self.clip = False       # latched until cleared
+        self._limit_gain = 1.0
+        self._meter = np.zeros(2, np.float32)
+        self.stream = None
+        self.device_error = SD_ERROR
+        self.render_busy = 0
+        self._gen = 0
+        self._pool = ThreadPoolExecutor(max_workers=max(2, min(4, (os.cpu_count() or 2) // 2)))
+        self.on_render_done = None   # callback(), called from a worker thread
+        self.render_error = None
+
+    # --- audio device ---
+    def open_stream(self):
+        if sd is None:
+            return False
+        try:
+            self.stream = sd.OutputStream(samplerate=SR, channels=2, dtype="float32",
+                                          latency="high", callback=self._callback)
+            self.stream.start()
+            self.device_error = None
+            return True
+        except Exception as e:
+            self.stream = None
+            self.device_error = str(e) or "No audio output device"
+            return False
+
+    def close(self):
+        try:
+            if self.stream is not None:
+                self.stream.stop()
+                self.stream.close()
+        except Exception:
+            pass
+        self._pool.shutdown(wait=False, cancel_futures=True)
+
+    # --- tracks ---
+    def add(self, track):
+        with self.lock:
+            frac = self.position()
+            self.tracks.append(track)
+            self.pos = frac * self.length()
+        self.request_render()
+
+    def remove(self, track):
+        with self.lock:
+            frac = self.position()
+            if track in self.tracks:
+                self.tracks.remove(track)
+            self.pos = frac * self.length()
+            if not self.tracks:
+                self.playing = False
+                self.pos = 0.0
+
+    def clear(self):
+        with self.lock:
+            self.tracks = []
+            self.playing = False
+            self.pos = 0.0
+
+    def length(self):
+        """Length of the playing timeline in samples."""
+        with self.lock:
+            return max((len(t.buf) for t in self.tracks), default=0)
+
+    def source_length(self):
+        return max((len(t.orig) for t in self.tracks), default=0)
+
+    def position(self):
+        n = self.length()
+        return min(1.0, self.pos / n) if n else 0.0
+
+    def seek(self, frac):
+        with self.lock:
+            self.pos = max(0.0, min(1.0, frac)) * self.length()
+
+    def toggle(self):
+        with self.lock:
+            if not self.tracks:
+                return False
+            if not self.playing and self.pos >= self.length() - 1:
+                self.pos = 0.0
+            self.playing = not self.playing
+            return self.playing
+
+    # --- speed / pitch ---
+    def set_stretch(self, speed, semitones):
+        self.speed, self.semitones = float(speed), float(semitones)
+        self.request_render()
+
+    def request_render(self):
+        key = (round(self.speed, 6), round(self.semitones, 6))
+        with self.lock:
+            todo = [t for t in self.tracks if t.buf_key != key]
+            self._gen += 1
+            gen = self._gen
+        if not todo:
+            return
+        self.render_busy += 1
+
+        def job():
+            try:
+                results = list(self._pool.map(
+                    lambda t: (t, render(t.orig, key[0], key[1], t.vocal)), todo))
+                with self.lock:
+                    if gen != self._gen:
+                        return  # settings changed again; a newer render is coming
+                    frac = self.position()
+                    for t, buf in results:
+                        t.buf, t.buf_key = buf, key
+                    self.pos = frac * self.length()
+            except Exception as e:  # keep playing the previous version
+                self.render_error = str(e)
+            finally:
+                self.render_busy -= 1
+                if self.on_render_done:
+                    self.on_render_done()
+
+        threading.Thread(target=job, daemon=True).start()
+
+    # --- mixing ---
+    def gains(self):
+        soloing = any(t.solo for t in self.tracks)
+        return [0.0 if (t.mute or (soloing and not t.solo)) else t.volume for t in self.tracks]
+
+    def mix_block(self, start, frames):
+        out = np.zeros((frames, 2), np.float32)
+        for t, g in zip(self.tracks, self.gains()):
+            if g <= 0:
+                continue
+            seg = t.buf[start:start + frames]
+            if len(seg):
+                out[:len(seg)] += seg * g
+        return out
+
+    def _callback(self, outdata, frames, time_info, status):
+        with self.lock:
+            if not self.playing or not self.tracks:
+                outdata.fill(0)
+                self._meter *= 0.0
+                return
+            n = self.length()
+            start = int(self.pos)
+            block = self.mix_block(start, frames) * self.master
+            self.pos += frames
+            if self.pos >= n:
+                if self.loop and n:
+                    rest = int(self.pos - n)
+                    if rest > 0:
+                        block[frames - rest:] = self.mix_block(0, rest) * self.master
+                    self.pos = float(rest)
+                else:
+                    self.pos = float(n)
+                    self.playing = False
+            outdata[:] = self.process_master(block)
+
+    def process_master(self, block):
+        """Clip detection (latched), meters and a safety limiter."""
+        peak = float(np.abs(block).max()) if block.size else 0.0
+        if peak > 1.0:
+            self.clip = True
+        self._meter = np.maximum(self._meter, np.abs(block).max(axis=0) if block.size else 0)
+        target = min(1.0, LIMIT / peak) if peak > 0 else 1.0
+        if target < self._limit_gain:
+            self._limit_gain = target                       # instant attack
+        else:
+            self._limit_gain = min(target, self._limit_gain + 0.02)  # slow release
+        return block * self._limit_gain
+
+    def take_meter(self):
+        """Peak per channel since the last call (for the meters)."""
+        m = self._meter.copy()
+        self._meter[:] = 0
+        return m
+
+
+# ---------- Auto 440 ----------
+
+def analyse_tuning(tracks):
+    """Returns (correction_cents, detected_A_hz or None, confidence)."""
+    if not tracks:
+        return 0.0, None, 0.0
+    n = max(len(t.orig) for t in tracks)
+    mono = np.zeros(n, np.float32)
+    for t in tracks:
+        mono[:len(t.orig)] += t.orig.mean(axis=1)
+    offset, conf = tuning.estimate_offset_cents(mono, SR)
+    corr = tuning.correction_cents(offset, conf)
+    a_hz = 440.0 * 2 ** (offset / 1200) if offset is not None else None
+    return corr, a_hz, conf
+
+
+# ---------- export ----------
+
+def _encode(audio, dst, fmt):
+    cmd = [ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error", "-f", "f32le", "-ar", str(SR),
+           "-ac", "2", "-i", "-", "-af", EXPORT_LIMITER]
+    if fmt == "MP3":
+        cmd += ["-c:a", "libmp3lame", "-b:a", "320k", "-compression_level", "0"]
+    elif fmt == "FLAC":
+        cmd += ["-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24",
+                "-compression_level", "8"]
+    else:
+        cmd += ["-c:a", "pcm_s24le"]
+    dst = Path(dst)
+    tmp = dst.with_name(dst.stem + ".part" + dst.suffix)
+    _run(cmd + [str(tmp)], np.ascontiguousarray(audio, dtype=np.float32).tobytes())
+    os.replace(tmp, dst)  # never leave half-written files behind
+
+
+def unique_path(p):
+    p = Path(p)
+    if not p.exists():
+        return p
+    i = 2
+    while True:
+        q = p.with_name(f"{p.stem} ({i}){p.suffix}")
+        if not q.exists():
+            return q
+        i += 1
+
+
+def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=lambda f: None,
+           name_tags=()):
+    """mode 'mix': dest is the output file. mode 'each': dest is a folder.
+    Renders from the original audio at full quality. Returns the written paths."""
+    ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3"}[fmt]
+    written = []
+    total = len(tracks) + 1
+    if mode == "mix":
+        mix = None
+        for i, (t, g) in enumerate(zip(tracks, gains)):
+            progress(i / total)
+            if g <= 0:
+                continue
+            buf = render(t.orig, speed, semitones, t.vocal) * (g * master)
+            if mix is None:
+                mix = buf.copy()
+            else:
+                if len(buf) > len(mix):
+                    mix = np.vstack([mix, np.zeros((len(buf) - len(mix), 2), np.float32)])
+                mix[:len(buf)] += buf
+        if mix is None:
+            raise RuntimeError("Every track is muted, so there is nothing to export.")
+        progress((total - 1) / total)
+        dst = Path(dest)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.suffix.lower() != ext:
+            dst = dst.with_suffix(ext)
+        _encode(mix, dst, fmt)
+        written.append(dst)
+    else:
+        folder = Path(dest)
+        folder.mkdir(parents=True, exist_ok=True)
+        t_tags = list(name_tags)
+        for i, t in enumerate(tracks):
+            progress(i / total)
+            buf = render(t.orig, speed, semitones, t.vocal) * master
+            name = safe_filename("_".join([Path(t.path).stem] + t_tags)) + ext
+            dst = unique_path(folder / name)
+            _encode(buf, dst, fmt)
+            written.append(dst)
+    progress(1.0)
+    return written
+
+
+def probe_seconds(path):
+    """Duration of a written file (used by the self-tests)."""
+    out = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True,
+                         text=True, creationflags=_NO_WINDOW).stderr
+    m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", out)
+    return int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3]) if m else 0.0
