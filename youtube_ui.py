@@ -35,7 +35,7 @@ class YouTubeJob:
         self.cancelled = False
         self.running = True
         self.result = self.error = None
-        self.progress = {}
+        self.progress = {"download": 0.0}  # the first step shows as started straight away
         self.steps = ["download"]
         if opts["karaoke"] or opts["stems"]:
             self.steps.append("split")
@@ -63,6 +63,15 @@ class YouTubeJob:
             traceback.print_exc()
             msg = str(e).strip().splitlines()[-1] if str(e).strip() else type(e).__name__
             self.app.events.put(("yt_done", self, None, msg))
+
+    def short_status(self):
+        words = {"download": "Downloading", "split": "Splitting", "tune": "Tuning", "save": "Saving",
+                 "load": "Loading"}
+        for k in self.steps:
+            f = self.progress.get(k, 0.0)
+            if f < 1.0:
+                return f"{words[k]} {int(f * 100)}%" if f > 0 else f"{words[k]}…"
+        return "Finishing…"
 
     def status_text(self):
         for k in self.steps:
@@ -136,6 +145,15 @@ class YouTubePopover:
             self.refresh_work()
         elif which == "setup":
             self.refresh_setup()
+        self.scroll_top()
+
+    def scroll_top(self):
+        """Views have different heights; always start at the top so nothing is out of sight."""
+        try:
+            self.root.update_idletasks()
+            self.body._parent_canvas.yview_moveto(0)
+        except Exception:
+            pass
 
     # ----- main setup view -----
     def _build_setup(self):
@@ -497,7 +515,7 @@ class YouTubePopover:
             elif active:
                 dot.configure(image=icon("dot", ACCENT, 12))
                 lbl.configure(text_color=TEXT, font=font(13, "bold"))
-                meta.configure(text=f"{int(prog * 100)}%")
+                meta.configure(text=f"{int(prog * 100)}%" if prog > 0 else "starting…")
                 bar.set(prog)
                 bar.pack(fill="x", padx=(28, 0), pady=(4, 0))
             else:

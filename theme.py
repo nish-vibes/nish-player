@@ -108,6 +108,10 @@ def icon(name, color, size=16):
         d.polygon([(S * .5, S * .08), (S * .94, S * .88), (S * .06, S * .88)], outline=color, width=w)
         d.line([(S * .5, S * .36), (S * .5, S * .6)], fill=color, width=w)
         d.ellipse([S * .45, S * .68, S * .55, S * .78], fill=color)
+    elif name.startswith("spin"):  # loading circle, 12 frames
+        a = int(name[4:]) * 30
+        d.arc([S * .12, S * .12, S * .88, S * .88], 0, 360, fill=(255, 255, 255, 40), width=w)
+        d.arc([S * .12, S * .12, S * .88, S * .88], a, a + 100, fill=color, width=w)
     elif name == "youtube":
         d.rounded_rectangle([S * .06, S * .2, S * .94, S * .8], radius=S * .18, outline=color, width=w)
         d.polygon([(S * .42, S * .36), (S * .42, S * .64), (S * .66, S * .5)], fill=color)

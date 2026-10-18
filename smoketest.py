@@ -299,10 +299,25 @@ def run(app, out_dir):
             assert want in txt, (want, txt)
         log("ok: YouTube popover: name, karaoke + stems, Auto 440 + tuned copy, suffixes, folder preview")
         shot("3-youtube")
+        pop.body._parent_canvas.yview_moveto(1.0)   # scrolled down to reach the Download button
+        yield 0.2
         pop.go.invoke()
-        yield 0.5
+        yield 0.3
         job = app.yt_job
         assert job is not None and pop.work.winfo_ismapped()
+        assert pop.body._parent_canvas.yview()[0] == 0.0, "progress view must start at the top"
+        f, dot, lbl, meta, bar = pop.step_rows["download"]
+        assert f.winfo_ismapped() and f.winfo_y() < 200, "download step not visible"
+        log("ok: progress view shows the steps at once, scrolled to the top")
+        shot("3b-youtube-working")
+        pop.close()
+        yield 0.4
+        assert app.yt_btn.cget("text") != "From YouTube…", app.yt_btn.cget("text")
+        assert "YouTube" not in app.status.cget("text"), app.status.cget("text")
+        log(f"ok: popover closed, header button spins: '{app.yt_btn.cget('text')}'")
+        app.open_youtube()
+        yield 0.3
+        assert pop.work.winfo_ismapped()
         t0 = time.time()
         while job.running:
             assert time.time() - t0 < 1200, "YouTube job timed out"
@@ -321,6 +336,12 @@ def run(app, out_dir):
         yield 0.5
         shot("4-youtube-done")
         log("ok: stems added to the workspace in order")
+        assert app.yt_btn.cget("text") == "Done"
+        t0 = time.time()
+        while app.yt_btn.cget("text") != "From YouTube…":
+            assert time.time() - t0 < 10, "button did not go back to normal"
+            yield 0.3
+        log("ok: header button shows Done, then returns to normal")
         pop.cancel_or_back()
         app.clear_all()
         yield 0.2

@@ -399,7 +399,7 @@ class App:
         right.grid(row=0, column=2, padx=24, pady=14, sticky="e")
         ToolButton(right, "Open…", self.open_dialog).pack(side="left", padx=4)
         self.yt_btn = ToolButton(right, "From YouTube…", self.open_youtube, image=icon("youtube", ACCENT_SOFT, 18),
-                                 compound="left")
+                                 compound="left", width=168)
         self.yt_btn.pack(side="left", padx=4)
         ToolButton(right, "Clear all", self.clear_all).pack(side="left", padx=4)
         self.export_btn = ToolButton(right, "Export…", self.open_export, primary=True,
@@ -864,7 +864,7 @@ class App:
     def _tick(self):
         try:
             self._handle_events()
-            self._yt_status_tick()
+            self._yt_button_tick()
             self._update_positions()
             self.fader.set_levels(self.player.take_meter())
             self.fader.show_clip(self.player.clip)
@@ -951,25 +951,34 @@ class App:
             job.progress["load"] = 1.0
             self.add_files([p for p, _ in result["load"]], names={str(p): lbl for p, lbl in result["load"]})
         if result:
-            self.flash(f"Saved “{result['name']}” from YouTube.")
-        elif error and error != "Cancelled.":
-            self.flash("YouTube: " + error[:80])
+            self._yt_done_until = self.root.winfo_toplevel().tk.call("clock", "milliseconds") + 5000
         self._yt_refresh()
 
-    def _yt_status_tick(self):
+    def _yt_button_tick(self):
+        """While a YouTube job runs, the header button becomes a spinner with the current step."""
         job = self.yt_job
-        text = None
-        if job and job.running and not (self.yt_pop and self.yt_pop.is_open()):
-            text = "YouTube: " + job.status_text()
-        if text != self._yt_status:
-            if text:
-                self.status.configure(text=text, text_color=ACCENT_SOFT)
-            elif self._yt_status:
-                self.status.configure(text="", text_color=AMBER_TXT)
-            self._yt_status = text
+        now = int(self.root.tk.call("clock", "milliseconds"))
+        if job and job.running:
+            frame = (now // 90) % 12
+            state = ("spin", frame, job.short_status())
+        elif job and job.result and now < getattr(self, "_yt_done_until", 0):
+            state = ("done",)
+        else:
+            state = ("idle",)
+        if state == self._yt_status:
+            return
+        self._yt_status = state
+        if state[0] == "spin":
+            self.yt_btn.configure(image=icon(f"spin{state[1]}", ACCENT_SOFT, 18), text=state[2],
+                                  border_color=ACCENT, text_color=ACCENT_SOFT)
+        elif state[0] == "done":
+            self.yt_btn.configure(image=icon("check", GREEN, 16), text="Done", border_color=GREEN_BORDER,
+                                  text_color=GREEN_TXT)
+        else:
+            self.yt_btn.configure(image=icon("youtube", ACCENT_SOFT, 18), text="From YouTube…",
+                                  border_color=BORDER2, text_color=TEXT2)
 
     def flash(self, msg, ms=4000):
-        self._yt_status = None
         self.status.configure(text=msg, text_color=AMBER_TXT)
         self.root.after(ms, lambda: self.status.configure(
             text="" if self.player.stream is not None else "No audio output found – playback is off, export still works"))
