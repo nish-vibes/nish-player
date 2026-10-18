@@ -242,16 +242,89 @@ class Track:
         return is_vocal(self.path, self.label)
 
 
+class LiveStretcher:
+    """Real-time speed + pitch for instant feedback while a slider moves.
+
+    WSOLA time-stretching (overlap-add of windowed grains, each one nudged to line up
+    with the previous one) followed by a resampler for the pitch. Not as clean as the
+    Rubber Band render, which replaces it as soon as it's ready, but it reacts at once.
+    """
+    N = 2048        # grain length (46 ms)
+    HS = 512        # output hop (75 % overlap)
+    TOL = 384       # how far a grain may move to line up
+    DEC = 4         # decimation for the alignment search
+
+    def __init__(self, fetch):
+        self.fetch = fetch      # fetch(start, n) -> (n, 2) float32 source mix
+        self.win = np.hanning(self.N).astype(np.float32)[:, None]
+        self.speed, self.ratio = 1.0, 1.0
+        self.reset(0.0)
+
+    def set_params(self, speed, semitones):
+        self.speed = float(speed)
+        self.ratio = float(2 ** (semitones / 12))
+
+    def reset(self, src_pos):
+        alpha = self.speed / self.ratio
+        warm = (self.N // self.HS) - 1
+        self.pa = float(src_pos) - warm * alpha * self.HS
+        self.prev = None
+        self.acc = np.zeros((self.N, 2), np.float32)
+        self.out = np.zeros((0, 2), np.float32)
+        self.rpos = 0.0
+        for _ in range(warm):  # fill the overlap-add so output starts at full level
+            self._hop(keep=False)
+
+    def _hop(self, keep=True):
+        N, HS, TOL, DEC = self.N, self.HS, self.TOL, self.DEC
+        start = int(round(self.pa))
+        delta = 0
+        if self.prev is not None:
+            region = self.fetch(start - TOL, N + 2 * TOL).mean(axis=1)[::DEC]
+            if np.any(region):
+                corr = np.correlate(region, self.prev[::DEC], "valid")
+                delta = (int(np.argmax(corr)) - TOL // DEC) * DEC
+        seg = self.fetch(start + delta, N + HS)
+        self.acc += seg[:N] * self.win
+        emit = self.acc[:HS] * 0.5   # Hann at 75 % overlap sums to 2
+        self.acc = np.concatenate([self.acc[HS:], np.zeros((HS, 2), np.float32)])
+        self.prev = seg[HS:HS + N].mean(axis=1)
+        self.pa += (self.speed / self.ratio) * HS
+        if keep:
+            self.out = np.concatenate([self.out, emit])
+
+    def read(self, frames):
+        r = self.ratio
+        need = int(self.rpos + frames * r) + 2
+        while len(self.out) < need:
+            self._hop()
+        idx = self.rpos + np.arange(frames) * r
+        i0 = idx.astype(np.int64)
+        fr = (idx - i0).astype(np.float32)[:, None]
+        y = self.out[i0] * (1 - fr) + self.out[i0 + 1] * fr
+        self.rpos += frames * r
+        drop = int(self.rpos)
+        if drop > 0:
+            self.out = self.out[drop:]
+            self.rpos -= drop
+        return y.astype(np.float32)
+
+
 class Player:
-    """Mixes all tracks live. Speed/pitch changes are rendered in the background and
-    swapped in at the same musical position."""
+    """Mixes all tracks live.
+
+    The clock is the position in the original audio (src_pos). When speed/pitch change,
+    playback switches straight away to the real-time stretcher, while the high-quality
+    Rubber Band version renders in the background; when that's ready it crossfades over.
+    """
+    FADE = 512
 
     def __init__(self):
         self.lock = threading.RLock()
         self.tracks = []
         self.playing = False
         self.loop = False
-        self.pos = 0.0          # sample index in the playing (rendered) timeline
+        self.src_pos = 0.0      # position in the original audio, in samples
         self.master = 1.0       # linear master gain
         self.speed = 1.0
         self.semitones = 0.0    # total pitch in semitones (coarse + cents/100)
@@ -261,10 +334,13 @@ class Player:
         self.stream = None
         self.device_error = SD_ERROR
         self.render_busy = 0
+        self.render_error = None
         self._gen = 0
         self._pool = ThreadPoolExecutor(max_workers=max(2, min(4, (os.cpu_count() or 2) // 2)))
         self.on_render_done = None   # callback(), called from a worker thread
-        self.render_error = None
+        self.live = LiveStretcher(self._fetch_mix)
+        self.mode = "direct"         # "direct" = buffers at 1:1, "live" = real-time stretcher
+        self._live_dirty = True
 
     # --- audio device ---
     def open_stream(self):
@@ -293,59 +369,69 @@ class Player:
     # --- tracks ---
     def add(self, track):
         with self.lock:
-            frac = self.position()
             self.tracks.append(track)
-            self.pos = frac * self.length()
+            self._live_dirty = True
         self.request_render()
 
     def remove(self, track):
         with self.lock:
-            frac = self.position()
             if track in self.tracks:
                 self.tracks.remove(track)
-            self.pos = frac * self.length()
             if not self.tracks:
                 self.playing = False
-                self.pos = 0.0
+                self.src_pos = 0.0
+            self.src_pos = min(self.src_pos, self.source_length())
+            self._live_dirty = True
 
     def clear(self):
         with self.lock:
             self.tracks = []
             self.playing = False
-            self.pos = 0.0
-
-    def length(self):
-        """Length of the playing timeline in samples."""
-        with self.lock:
-            return max((len(t.buf) for t in self.tracks), default=0)
+            self.src_pos = 0.0
 
     def source_length(self):
         return max((len(t.orig) for t in self.tracks), default=0)
 
+    def length(self):
+        """Length as heard at the current speed, in samples (for the time display)."""
+        return int(self.source_length() / self.speed) if self.tracks else 0
+
     def position(self):
-        n = self.length()
-        return min(1.0, self.pos / n) if n else 0.0
+        n = self.source_length()
+        return min(1.0, self.src_pos / n) if n else 0.0
 
     def seek(self, frac):
         with self.lock:
-            self.pos = max(0.0, min(1.0, frac)) * self.length()
+            self.src_pos = max(0.0, min(1.0, frac)) * self.source_length()
+            self._live_dirty = True
 
     def toggle(self):
         with self.lock:
             if not self.tracks:
                 return False
-            if not self.playing and self.pos >= self.length() - 1:
-                self.pos = 0.0
+            if not self.playing and self.src_pos >= self.source_length() - 1:
+                self.src_pos = 0.0
             self.playing = not self.playing
+            self._live_dirty = True
             return self.playing
 
     # --- speed / pitch ---
+    def key(self):
+        return (round(self.speed, 6), round(self.semitones, 6))
+
+    def set_live(self, speed, semitones):
+        """Change speed/pitch now (heard immediately through the real-time stretcher)."""
+        with self.lock:
+            self.speed, self.semitones = float(speed), float(semitones)
+            self.live.set_params(self.speed, self.semitones)
+
     def set_stretch(self, speed, semitones):
-        self.speed, self.semitones = float(speed), float(semitones)
+        """Change speed/pitch and start the high-quality render."""
+        self.set_live(speed, semitones)
         self.request_render()
 
     def request_render(self):
-        key = (round(self.speed, 6), round(self.semitones, 6))
+        key = self.key()
         with self.lock:
             todo = [t for t in self.tracks if t.buf_key != key]
             self._gen += 1
@@ -356,16 +442,15 @@ class Player:
 
         def job():
             try:
+                self.render_error = None
                 results = list(self._pool.map(
                     lambda t: (t, render(t.orig, key[0], key[1], t.vocal)), todo))
                 with self.lock:
                     if gen != self._gen:
                         return  # settings changed again; a newer render is coming
-                    frac = self.position()
                     for t, buf in results:
                         t.buf, t.buf_key = buf, key
-                    self.pos = frac * self.length()
-            except Exception as e:  # keep playing the previous version
+            except Exception as e:  # keep playing the real-time version
                 self.render_error = str(e)
             finally:
                 self.render_busy -= 1
@@ -374,12 +459,29 @@ class Player:
 
         threading.Thread(target=job, daemon=True).start()
 
+    def ready(self):
+        """True when the high-quality version of the current settings is playing."""
+        key = self.key()
+        return bool(self.tracks) and all(t.buf_key == key for t in self.tracks)
+
     # --- mixing ---
     def gains(self):
         soloing = any(t.solo for t in self.tracks)
         return [0.0 if (t.mute or (soloing and not t.solo)) else t.volume for t in self.tracks]
 
+    def _fetch_mix(self, start, n):
+        """Original audio, mixed with the current gains (input for the live stretcher)."""
+        out = np.zeros((n, 2), np.float32)
+        for t, g in zip(self.tracks, self.gains()):
+            if g <= 0:
+                continue
+            a, b = max(start, 0), min(start + n, len(t.orig))
+            if b > a:
+                out[a - start:b - start] += t.orig[a:b] * g
+        return out
+
     def mix_block(self, start, frames):
+        """Rendered buffers at 1:1 from buffer index `start`."""
         out = np.zeros((frames, 2), np.float32)
         for t, g in zip(self.tracks, self.gains()):
             if g <= 0:
@@ -389,25 +491,49 @@ class Player:
                 out[:len(seg)] += seg * g
         return out
 
+    def _direct(self, frames):
+        ks = self.tracks[0].buf_key[0]
+        return self.mix_block(int(self.src_pos / ks), frames)
+
+    def _fade(self, a, b):
+        ramp = np.linspace(0.0, 1.0, len(a), dtype=np.float32)[:, None]
+        return a * (1 - ramp) + b * ramp
+
+    def render_block(self, frames):
+        """Next block of the mix (before master gain). Advances the clock."""
+        if self.ready():
+            block = self._direct(frames)
+            if self.mode == "live" and not self._live_dirty:
+                block = self._fade(self.live.read(frames), block)  # hand over smoothly
+            self.mode = "direct"
+        else:
+            if self.mode == "live" and not self._live_dirty:
+                block = self.live.read(frames)
+            else:
+                old = self._direct(frames) if self.mode == "direct" and not self._live_dirty else None
+                self.live.reset(self.src_pos)
+                block = self.live.read(frames)
+                if old is not None:
+                    block = self._fade(old, block)
+            self.mode = "live"
+        self._live_dirty = False
+        self.src_pos += frames * self.speed
+        return block
+
     def _callback(self, outdata, frames, time_info, status):
         with self.lock:
             if not self.playing or not self.tracks:
                 outdata.fill(0)
-                self._meter *= 0.0
                 return
-            n = self.length()
-            start = int(self.pos)
-            block = self.mix_block(start, frames) * self.master
-            self.pos += frames
-            if self.pos >= n:
+            block = self.render_block(frames) * self.master
+            n = self.source_length()
+            if self.src_pos >= n:
                 if self.loop and n:
-                    rest = int(self.pos - n)
-                    if rest > 0:
-                        block[frames - rest:] = self.mix_block(0, rest) * self.master
-                    self.pos = float(rest)
+                    self.src_pos -= n
                 else:
-                    self.pos = float(n)
+                    self.src_pos = float(n)
                     self.playing = False
+                self._live_dirty = True
             outdata[:] = self.process_master(block)
 
     def process_master(self, block):

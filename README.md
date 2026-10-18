@@ -21,8 +21,9 @@ click **More info → Run anyway**.
 - **Rename tracks** by clicking the name. The file itself is never renamed; the app just
   remembers the name you gave it.
 - **Speed** (0.5×–1.5×) and **Pitch** (±6 semitones) for all tracks together, without one
-  changing the other. Changes are applied in high quality (Rubber Band) about a second after
-  you let go of the slider; playback keeps going at the same spot.
+  changing the other. You hear the change straight away while you drag; a moment after you
+  let go, a high-quality version (Rubber Band) takes over seamlessly at the same spot.
+- **Ctrl+click** any slider (or the master fader) to put it back to its default.
 - **Fine tune** (±50 cents) and **Auto 440 (beta)**: Auto 440 measures how far the song is
   from A = 440 Hz and sets the fine tune slider for you (it turns green and locks while Auto 440
   is on). Turn it off and your own fine tune value comes back.

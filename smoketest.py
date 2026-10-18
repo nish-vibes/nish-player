@@ -112,6 +112,12 @@ def run(app, out_dir):
         app.on_speed(0.85)
         app.pitch_slider.set(-2)
         app.on_pitch(-2)
+        assert app.player.key() == (0.85, -2.0), app.player.key()  # heard at once (live)
+        app.player.playing = True
+        app.player.render_block(1024)
+        assert app.player.mode == "live"
+        app.player.playing = False
+        log("ok: slider change goes to the real-time stretcher immediately")
         yield 0.5
         t0 = time.time()
         while app.player.render_busy or any(t.buf_key != (0.85, -2.0) for t in app.player.tracks):
@@ -228,6 +234,23 @@ def run(app, out_dir):
         yield 0.2
         assert app.fine_val.cget("text") == "+12 ct" and app.fine_slider.cget("state") == "normal"
         log("ok: Auto 440 off restores the manual fine tune")
+
+        # Ctrl+click puts sliders back to their defaults
+        def ctrl_click(slider):
+            c = slider._canvas
+            c.event_generate("<Control-Button-1>", x=c.winfo_width() // 4, y=c.winfo_height() // 2,
+                             state=0x0004)
+        for sl in (app.speed_slider, app.pitch_slider, app.fine_slider, lane.vol):
+            ctrl_click(sl)
+        app.fader.set_pos(0.3)
+        fc = app.fader.canvas
+        fc.event_generate("<Control-Button-1>", x=60, y=40, state=0x0004)
+        yield 0.3
+        assert app.speed == 1.0 and app.semis == 0 and app.manual_cents == 0, (app.speed, app.semis,
+                                                                               app.manual_cents)
+        assert lane.track.volume == 1.0 and abs(app.fader.pos - 0.8) < 1e-6
+        assert app.player.key() == (1.0, 0.0)
+        log("ok: Ctrl+click resets speed, pitch, fine tune, track volume and master")
 
         # remove and clear
         app.remove_lane(drums)

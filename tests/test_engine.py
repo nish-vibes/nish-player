@@ -29,6 +29,14 @@ def tone_song(seconds=6.0, a_hz=436.8):
     return chord, melody, drums
 
 
+def _slice(a, start, n):
+    out = np.zeros((n, 2), np.float32)
+    lo, hi = max(start, 0), min(start + n, len(a))
+    if hi > lo:
+        out[lo - start:hi - start] = a[lo:hi]
+    return out
+
+
 def write_wav(path, mono):
     st = np.stack([mono, mono], axis=1).astype(np.float32)
     engine._encode(st, path, "WAV")
@@ -114,17 +122,45 @@ def main(out_dir=None):
     assert m.max() >= 1.7 and p.take_meter().max() == 0
     ok("clip light latches, limiter holds -0.3 dBFS")
 
-    # live speed change keeps the position
+    # real-time stretcher: speed and pitch are heard at once
+    tracks[2].mute = False
+    tracks[0].volume = 1.0
+    live = engine.LiveStretcher(p._fetch_mix)
+    live.set_params(0.8, 0)
+    live.reset(0)
+    y = live.read(SR * 2)
+    assert abs(live.pa / (SR * 2) - 0.8) < 0.05, live.pa / (SR * 2)
+    assert 0.3 < float(np.abs(y[SR // 2:]).mean()) / float(np.abs(p._fetch_mix(SR // 2, SR)).mean()) < 1.6
+    solo = engine.LiveStretcher(lambda s, n: _slice(tracks[1].orig, s, n))
+    solo.set_params(1.0, 2)
+    solo.reset(0)
+    f0 = main_freq(tracks[1].orig)
+    f1 = main_freq(solo.read(SR))
+    assert abs(f1 / f0 - 2 ** (2 / 12)) < 0.015, (f0, f1)
+    ok(f"live stretcher: speed 0.8x consumes {live.pa / (SR * 2):.3f}x, +2 st {f0:.0f} -> {f1:.0f} Hz")
+
+    # playback: slider change -> live at once -> high-quality render takes over, same spot
     p.seek(0.5)
-    p.set_stretch(0.5, 0)
+    p.playing = True
+    assert p.ready()
+    p.render_block(1024)
+    assert p.mode == "direct"
+    p.set_live(0.5, 0)              # slider moving: heard immediately
+    blk = p.render_block(1024)
+    assert p.mode == "live" and float(np.abs(blk).max()) > 0.01
+    pos_live = p.src_pos
+    p.request_render()               # slider released
     import time
     for _ in range(300):
-        if p.render_busy == 0 and all(t.buf_key == (0.5, 0.0) for t in tracks):
+        if p.ready():
             break
         time.sleep(0.05)
-    assert all(t.buf_key == (0.5, 0.0) for t in tracks), [t.buf_key for t in tracks]
+    assert p.ready(), [t.buf_key for t in tracks]
+    p.render_block(1024)
+    assert p.mode == "direct" and abs(p.src_pos - (pos_live + 512)) < 1
     assert abs(p.position() - 0.5) < 0.01 and abs(p.length() / n0 - 2.0) < 0.03
-    ok("live speed change keeps the playhead")
+    p.playing = False
+    ok("slider change is heard at once, high-quality render takes over at the same spot")
 
     # export: mix + each track, all formats
     gains = p.gains()

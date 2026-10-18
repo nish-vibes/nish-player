@@ -211,6 +211,7 @@ class Lane:
                                  command=self.on_volume, progress_color=self.color,
                                  button_color=TEXT2, button_hover_color="#ffffff", fg_color=BORDER2)
         self.vol.set(100)
+        App.ctrl_reset(self.vol, 100, self.on_volume)
         self.vol.grid(row=0, column=1, sticky="ew", padx=4)
         self.vol_lbl = ctk.CTkLabel(volrow, text="100%", text_color=MUTED, font=font(11, mono=True),
                                     width=40, height=22, anchor="e")
@@ -352,6 +353,8 @@ class MasterFader:
         for e in ("<Button-1>", "<B1-Motion>"):
             c.bind(e, self._drag)
         c.bind("<Double-Button-1>", lambda e: self.set_pos(db_pos(0.0)))
+        c.bind("<Control-Button-1>", lambda e: (self.set_pos(db_pos(0.0)), "break")[1])
+        c.bind("<Control-B1-Motion>", lambda e: "break")
         c.bind("<MouseWheel>", lambda e: self.set_pos(self.pos + (0.02 if e.delta > 0 else -0.02)))
         c.bind("<Button-4>", lambda e: self.set_pos(self.pos + 0.02))
         c.bind("<Button-5>", lambda e: self.set_pos(self.pos - 0.02))
@@ -627,6 +630,8 @@ class App:
         top = ctk.CTkFrame(fc, fg_color="transparent")
         top.pack(fill="x", padx=16, pady=(12, 4))
         ctk.CTkLabel(top, text="Fine tune", font=font(14, "bold"), text_color=TEXT).pack(side="left")
+        self.fine_val = ctk.CTkLabel(top, text="0 ct", font=font(13, "bold", True), anchor="w")
+        self.fine_val.pack(side="left", padx=(10, 0))
         ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color="#3a3220",
                      corner_radius=4, height=18).pack(side="right")
         self.auto_var = tk.BooleanVar(value=False)
@@ -636,14 +641,13 @@ class App:
                                         fg_color=GREEN, hover_color=GREEN, border_color="#4a515b",
                                         checkmark_color=ACCENT_TXT)
         self.auto_chk.pack(side="right", padx=(0, 6))
-        mid = ctk.CTkFrame(fc, fg_color="transparent")
-        mid.pack(fill="x", padx=16)
-        self.fine_slider = ctk.CTkSlider(mid, from_=-50, to=50, number_of_steps=100, height=18,
+        self.fine_slider = ctk.CTkSlider(fc, from_=-50, to=50, number_of_steps=100, height=18,
                                          command=self.on_fine)
         self.fine_slider.set(0)
-        self.fine_slider.pack(side="left", fill="x", expand=True)
-        self.fine_val = ctk.CTkLabel(mid, text="0 ct", font=font(13, "bold", True), width=64, anchor="e")
-        self.fine_val.pack(side="right")
+        self.fine_slider.pack(fill="x", padx=16)
+        self.ctrl_reset(self.speed_slider, 1.0, self.on_speed)
+        self.ctrl_reset(self.pitch_slider, 0, self.on_pitch)
+        self.ctrl_reset(self.fine_slider, 0, self.on_fine)
         self.fine_scale = self._marks(fc, ("−50 ct", "0", "+50 ct"))
         self.fine_info = ctk.CTkLabel(fc, text="", font=font(12), anchor="w", height=20, compound="left")
         self._style_fine()
@@ -684,6 +688,18 @@ class App:
         hi.pack(side="right")
         mid.pack(side="left", expand=True)
         return sc
+
+    @staticmethod
+    def ctrl_reset(slider, value, handler):
+        """Ctrl+click puts a slider back to its default."""
+        def do(e):
+            if str(slider.cget("state")) == "disabled":
+                return "break"
+            slider.set(value)
+            handler(value)
+            return "break"
+        slider.bind("<Control-Button-1>", do)
+        slider.bind("<Control-B1-Motion>", lambda e: "break")
 
     # ----- styling helpers -----
     def _style_loop(self):
@@ -875,19 +891,19 @@ class App:
     def on_speed(self, v):
         self.speed = round(float(v), 2)
         self.speed_val.configure(text=f"{self.speed:.2f}×")
-        self._schedule_stretch()
+        self._live()
 
     def on_pitch(self, v):
         self.semis = int(round(float(v)))
         self.pitch_val.configure(text=f"{engine.fmt_semitones(self.semis)} st".replace("-", "−"))
-        self._schedule_stretch()
+        self._live()
 
     def on_fine(self, v):
         if self.auto:
             return
         self.manual_cents = round(float(v))
         self._style_fine()
-        self._schedule_stretch()
+        self._live()
 
     def on_auto(self):
         self.auto = bool(self.auto_var.get())
@@ -899,7 +915,7 @@ class App:
             self.fine_slider.configure(state="normal")
             self.fine_slider.set(self.manual_cents)
         self._style_fine()
-        self._schedule_stretch(0)
+        self._live(0)
 
     def start_analysis(self):
         self.auto_result = None
@@ -931,7 +947,13 @@ class App:
             self.fine_slider.set(0)
             self.on_fine(0)
 
-    def _schedule_stretch(self, delay=280):
+    def _live(self, delay=350):
+        """Heard at once through the real-time stretcher; the high-quality version
+        renders once the slider has been still for a moment."""
+        self.player.set_live(self.speed, self.semis + self.current_cents() / 100.0)
+        self._schedule_stretch(delay)
+
+    def _schedule_stretch(self, delay=350):
         if self._stretch_job:
             self.root.after_cancel(self._stretch_job)
         self._stretch_job = self.root.after(delay, self.apply_stretch)
@@ -943,11 +965,11 @@ class App:
 
     def _update_busy(self):
         if self.player.render_busy > 0:
-            self.busy_lbl.configure(text="Applying speed & pitch…")
+            self.busy_lbl.configure(text="Polishing the sound quality…", text_color=ACCENT_SOFT)
         elif self.player.render_error:
             self.busy_lbl.configure(text="Couldn't apply speed & pitch – see the log", text_color=AMBER_TXT)
         else:
-            self.busy_lbl.configure(text="")
+            self.busy_lbl.configure(text="Tip: Ctrl+click a slider to reset it", text_color=DIM)
 
     # ----- loop -----
     def _tick(self):
@@ -1001,7 +1023,7 @@ class App:
                         self.fine_slider.configure(state="normal")
                         self.fine_slider.set(self.current_cents())
                     self._style_fine()
-                    self._schedule_stretch(0)
+                    self._live(0)
             elif kind == "export_done" and self.export_dialog:
                 self.export_dialog.done(ev[1], ev[2])
             elif kind == "export_progress" and self.export_dialog:
