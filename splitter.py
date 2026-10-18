@@ -306,7 +306,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
                 keys = list(outputs)
                 for i, k in enumerate(keys):
                     check_cancel()
-                    outputs[k] = engine.render(outputs[k], 1.0, corr / 100.0)
+                    outputs[k] = engine.render(outputs[k], 1.0, 0, cents=corr)   # varispeed
                     stage("tune", (i + 1) / len(keys))
             else:
                 tuning_text = ("Already at A440." if offset is not None and conf >= 0.12

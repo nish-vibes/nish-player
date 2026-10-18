@@ -162,12 +162,18 @@ def main(out_dir=None):
     p.playing = False
     ok("slider change is heard at once, high-quality render takes over at the same spot")
 
-    # varispeed for tiny fine-tuning (|cents| <= 4, speed 1.0, no semitones): lossless resampling
-    assert engine.varispeed_applies(1.0, 0, 4) and engine.varispeed_applies(1.0, 0, -3)
-    assert not engine.varispeed_applies(1.0, 0, 4.5) and not engine.varispeed_applies(0.9, 0, 3)
-    assert not engine.varispeed_applies(1.0, -2, 3) and not engine.varispeed_applies(1.0, 0, 0)
-    vs, vst = engine.varispeed_params(4)
-    vr = engine.render(tracks[1].orig, vs, vst, varispeed=True)
+    # fine-tuning is always varispeed (no tempo compensation); Rubber Band always one pass.
+    # Lowering: varispeed -> Rubber Band. Raising: Rubber Band -> varispeed.
+    assert engine.stretch_filter(1.0, 0, cents=4) == engine.varispeed_filter(0.04)  # tuning only: no Rubber Band
+    neg, pos = engine.stretch_filter(0.85, 0, cents=-40), engine.stretch_filter(0.85, 0, cents=40)
+    assert neg.startswith("asetrate=") and neg.count("asetrate") == 1 + (not engine.has_rubberband()), neg
+    assert pos.endswith(engine.varispeed_filter(0.4)) and not pos.startswith("asetrate="), pos
+    if engine.has_rubberband():
+        assert neg.count("rubberband=") == 1 and pos.count("rubberband=") == 1
+        assert "tempo=0.850000" in neg and "pitch=1.000000" in pos    # no compensation
+    assert engine.stretch_filter(1.0, 0, cents=0) is None
+    vs = engine.vari_ratio(4)
+    vr = engine.render(tracks[1].orig, 1.0, 0, cents=4)
     assert abs(len(tracks[1].orig) / len(vr) - vs) < 1e-3, (len(vr), vs)
     def fine_freq(x):  # parabolic peak interpolation inside the first note
         x = x[:, 0][:32000] * np.hanning(32000)
@@ -177,14 +183,25 @@ def main(out_dir=None):
         return (k + 0.5 * (a - c) / (a - 2 * b + c)) * SR / (1 << 18)
     f0, f2 = fine_freq(tracks[1].orig), fine_freq(vr)
     assert abs(f2 / f0 - vs) < 0.0004, (f0, f2, vs)
-    p.set_stretch(vs, vst, varispeed=True)
+    for cents in (-40, 40):          # with speed: length = n / (speed * ratio), pitch x ratio
+        rr = engine.render(tracks[1].orig, 0.8, 0, cents=cents)
+        want = len(tracks[1].orig) / engine.chain_rate(0.8, cents)
+        assert abs(len(rr) / want - 1) < 0.01, (cents, len(rr), want)
+        fr = main_freq(rr[int(SR * 0.3):])
+        assert abs(fr / main_freq(tracks[1].orig[int(SR * 0.3 * 0.8 * engine.vari_ratio(cents)):])
+                   - engine.vari_ratio(cents)) < 0.02, (cents, fr)
+    wild = engine.render(tracks[1].orig, 1.0, 0, cents=-500)
+    assert abs(len(wild) / len(tracks[1].orig) - 2 ** (500 / 1200)) < 0.01, len(wild)
+    p.set_stretch(1.0, 0, 4)
     for _ in range(300):
         if p.ready():
             break
         time.sleep(0.05)
-    assert p.ready() and all(tr.buf_key == (round(vs, 6), round(vst, 6), True) for tr in tracks)
+    assert p.ready() and all(tr.buf_key == (1.0, 0.0, 4.0) for tr in tracks)
+    assert p.varispeed and abs(p.speed - vs) < 1e-9 and abs(p.length() - n0 / vs) < 2
     assert abs(p.live.speed / p.live.ratio - 1.0) < 1e-9   # live preview: no stretching, just resampling
-    ok(f"varispeed +4 ct: pitch x{f2 / f0:.5f}, length x{len(vr) / len(tracks[1].orig):.5f}")
+    ok(f"fine-tuning = varispeed: +4 ct pitch x{f2 / f0:.5f}, length x{len(vr) / len(tracks[1].orig):.5f}; "
+       f"order by direction, one Rubber Band pass; wild -500 ct x{len(wild) / len(tracks[1].orig):.3f}")
 
     # loop area: playback stays inside it, with 2-second fades at both ends
     for tr in tracks:
@@ -224,7 +241,11 @@ def main(out_dir=None):
     y = engine.decode(w[0])
     assert float(np.abs(y[:200]).max()) < 0.02 and float(np.abs(y[-200:]).max()) < 0.02
     assert engine.region_tag(SR * 42, SR * 73) == "_0m42-1m13"
-    w = engine.export(tracks, p.gains(), 1.0, vs, vst, "mix", "WAV", out / "vari.wav", varispeed=True)
+    w = engine.export(tracks, p.gains(), 1.0, 0.8, 0, "mix", "WAV", out / "loop-fine.wav",
+                      region=(SR * 1, SR * 4), cents=40)
+    fsecs = engine.probe_seconds(w[0])
+    assert abs(fsecs - 3 / engine.chain_rate(0.8, 40)) < 0.05, fsecs
+    w = engine.export(tracks, p.gains(), 1.0, 1.0, 0, "mix", "WAV", out / "vari.wav", cents=4)
     vsecs = engine.probe_seconds(w[0])
     assert abs(vsecs - 6.0 / vs) < 0.01, vsecs
     ok(f"export only the loop area: {secs:.2f} s with fades")

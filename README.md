@@ -24,12 +24,15 @@ click **More info → Run anyway**.
   changing the other. You hear the change straight away while you drag; a moment after you
   let go, a high-quality version (Rubber Band) takes over seamlessly at the same spot.
 - **Ctrl+click** any slider (or the master fader) to put it back to its default.
-- **Fine tune** (±50 cents) and **Auto 440 (beta)**: Auto 440 measures how far the song is
-  from A = 440 Hz and sets the fine tune slider for you (it turns green and locks while Auto 440
-  is on). Turn it off and your own fine tune value comes back. Fine-tuning of **4 cents or less**
-  (with speed 1.0× and pitch 0) uses **varispeed** – a lossless, turntable-style resample that
-  moves the tempo by a hair – instead of Rubber Band; export lets you switch back to Rubber Band.
-  If Auto 440 finds the song within ±4 cents of A440 it leaves it as is and offers varispeed.
+- **Fine-tuning** (±50 cents) and **Auto 440 (beta)**: Auto 440 measures how far the song is
+  from A = 440 Hz and sets the fine-tuning slider for you (it turns green and locks while Auto 440
+  is on). Turn it off and your own value comes back. Fine-tuning is always done with **varispeed** –
+  a clean, turntable-style resample, so pitch and tempo move together and the length changes a little.
+  Speed and Pitch use Rubber Band, always in a single pass: when tuning down, varispeed comes first;
+  when tuning up, Rubber Band comes first. If Auto 440 finds the song within ±4 cents of A440 it
+  leaves it as is, shows its tuning and offers **Fine-tune anyway**.
+- **Wild speed** widens fine-tuning to ±500 cents (turntable style, about 0.75×–1.33×).
+  Wild speed and Auto 440 turn each other off.
 - **Master fader** with L/R level meters and a **CLIP** light that stays on until you click it.
   A gentle safety limiter keeps the sound from distorting.
 - **Export** the mix as you hear it (mute, solo and volume applied) or each track separately,
@@ -41,7 +44,7 @@ click **More info → Run anyway**.
   YouTube delivers it (no re-encoding, no suffix) in its own folder. Optionally it also makes a
   **karaoke version** (`_NoVox`) and **6 stems** (`_VOX`, `_DRM`, `_BASS`, `_GTR`, `_KEYS`, `_MISC`,
   in a `<name> stems` folder) with the same AI as NiSH Stem Splitter, and can **tune them to
-  A = 440 Hz (beta)** – plus an extra tuned copy of the original (`_440hz`) if you like. Name the
+  A = 440 Hz (beta, varispeed)** – plus an extra tuned copy of the original (`_440hz`) if you like. Name the
   file yourself or leave it blank to use the video title. The cogwheel sets the suffixes, the stems
   folder name and the format (FLAC by default; WAV, MP3 320 or Opus 256). **Add to workspace**
   loads the result straight into the player. The first split downloads the AI model once.

@@ -209,8 +209,8 @@ def run(app, out_dir):
         log(f"ok: Auto 440 detected A = {a_hz:.1f} Hz -> {corr:+.1f} ct, slider locked: "
             f"{app.fine_info.cget('text')}")
         t0 = time.time()
-        want = round(-2 + app.current_cents() / 100, 6)
-        while app.player.render_busy or any(t.buf_key[1] != want for t in app.player.tracks):
+        want = (round(app.speed, 6), -2.0, round(app.current_cents(), 6))   # Rubber Band, then varispeed
+        while app.player.render_busy or any(t.buf_key != want for t in app.player.tracks):
             assert time.time() - t0 < 90, "Auto 440 render timed out"
             yield 0.2
         log("ok: Auto 440 correction applied to playback")
@@ -310,27 +310,20 @@ def run(app, out_dir):
         assert app.speed == 1.0 and app.semis == 0 and app.manual_cents == 0, (app.speed, app.semis,
                                                                                app.manual_cents)
         assert lane.track.volume == 1.0 and abs(app.fader.pos - 0.8) < 1e-6
-        assert app.player.key() == (1.0, 0.0, False)
+        assert app.player.key() == (1.0, 0.0, 0.0)
         log("ok: Ctrl+click resets speed, pitch, fine tune, track volume and master")
 
-        # varispeed: fine-tuning of 4 cents or less (speed 1.0, pitch 0) is done by resampling
-        app.fine_slider.set(3)
-        app.on_fine(3)
-        yield 0.2
-        assert app.player.varispeed, "varispeed should be on at +3 ct"
-        assert "VARISPEED" in app.fine_mid.cget("text") and app.fine_mid.winfo_ismapped()
-        app.fine_slider.set(5)
-        app.on_fine(5)
-        yield 0.2
-        assert not app.player.varispeed and app.fine_mid.cget("text") == "0", "5 ct uses Rubber Band"
-        app.fine_slider.set(-4)
-        app.on_fine(-4)
-        yield 0.2
-        assert app.player.varispeed
+        # fine-tuning is always varispeed (pitch and tempo together, no compensation)
+        for c in (3, 12, -40):
+            app.fine_slider.set(c)
+            app.on_fine(c)
+            yield 0.2
+            assert app.player.varispeed and app.player.key() == (1.0, 0.0, float(c)), app.player.key()
+            assert "VARISPEED" in app.fine_mid.cget("text") and app.fine_mid.winfo_ismapped()
         app.open_export()
         yield 0.6
         d = app.export_dialog
-        assert d.vari_params and d.vari_var.get()
+        assert not hasattr(d, "vari_var")          # no Rubber Band escape hatch any more
         d.folder = str(out / "export-vari")
         d.fmt.set("WAV")
         d.mode.set("mix")
@@ -339,16 +332,33 @@ def run(app, out_dir):
         while d.busy:
             yield 0.2
         sv = engine.probe_seconds(d.written[0])
-        d.vari_var.set(False)
-        d.start()
-        while d.busy:
-            yield 0.2
-        sr_ = engine.probe_seconds(d.written[0])
         d.close()
         n_sec = app.player.source_length() / engine.SR
-        assert abs(sr_ - n_sec) < 0.02 and sv > sr_ + 0.005, (sv, sr_, n_sec)
-        log(f"ok: ≤4 ct uses varispeed (live + export {sv:.3f} s), unticked = Rubber Band ({sr_:.3f} s); "
-            "5 ct uses Rubber Band")
+        assert abs(sv - n_sec / engine.vari_ratio(-40)) < 0.03, (sv, n_sec)
+        log(f"ok: fine-tuning is always varispeed (live + export −40 ct: {n_sec:.3f} s → {sv:.3f} s)")
+
+        # Wild speed: ±500 ct, and it excludes Auto 440 (both ways)
+        app.wild_var.set(True)
+        app.on_wild()
+        yield 0.2
+        assert app.wild and float(app.fine_slider.cget("to")) == 500 and app.fine_hi.cget("text") == "+500 ct"
+        app.fine_slider.set(-300)
+        app.on_fine(-300)
+        yield 0.2
+        assert app.player.key() == (1.0, 0.0, -300.0)
+        shot("4a-wild")
+        app.auto_var.set(True)
+        app.on_auto()
+        yield 0.2
+        assert app.auto and not app.wild and not app.wild_var.get() and app.manual_cents == -50
+        assert float(app.fine_slider.cget("to")) == 50
+        app.wild_var.set(True)
+        app.on_wild()
+        yield 0.2
+        assert app.wild and not app.auto and not app.auto_var.get()
+        app.wild_var.set(False)
+        app.on_wild()
+        log("ok: Wild speed widens fine-tuning to ±500 ct; Auto 440 and Wild speed turn each other off")
         app.fine_slider.set(0)
         app.on_fine(0)
         # Auto 440 dead zone: within ±4 cents it is left as is, with an offer to use varispeed
@@ -361,15 +371,16 @@ def run(app, out_dir):
         yield 0.4
         assert app.in_dead_zone() and app.current_cents() == 0 and not app.player.varispeed
         assert app.fine_info.cget("text").strip() == "Track is tuned to A = 439.2 Hz", app.fine_info.cget("text")
-        assert app.vari_btn.winfo_ismapped() and "varispeed" in app.vari_btn.cget("text")
+        assert app.vari_btn.winfo_ismapped()
         assert app.vari_note.winfo_ismapped() and "length" in app.vari_note.cget("text")
         shot("4b-deadzone")
-        assert app.vari_btn.cget("text") == "Use varispeed (+3.0 ct)", app.vari_btn.cget("text")
+        assert app.vari_btn.cget("text") == "Fine-tune anyway (+3.0 ct)", app.vari_btn.cget("text")
         app.vari_btn.invoke()
         yield 0.3
         assert app.current_cents() == 3.0 and app.player.varispeed
         assert app.fine_val.cget("text") == "+3.0 ct", app.fine_val.cget("text")
-        assert "Varispeed" in app.fine_info.cget("text")
+        assert "Fine-tuned: A = 439.2 Hz" in app.fine_info.cget("text"), app.fine_info.cget("text")
+        assert app.vari_btn.cget("text") == "Don't fine-tune"
         assert app.vari_note.winfo_ismapped()
         shot("4c-deadzone-varispeed")
         app.vari_btn.invoke()
@@ -377,7 +388,7 @@ def run(app, out_dir):
         assert app.current_cents() == 0 and not app.player.varispeed
         app.auto_var.set(False)
         app.on_auto()
-        log("ok: Auto 440 dead zone (±4 ct): 'Track is tuned to A = 439.2 Hz' + 'Use varispeed' button")
+        log("ok: Auto 440 dead zone (±4 ct): 'Track is tuned to A = 439.2 Hz' + 'Fine-tune anyway' button")
 
         # loop area: drag on the timeline, loop button, export only the area, clear with ×
         rc = app.ruler

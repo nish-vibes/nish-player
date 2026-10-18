@@ -372,7 +372,8 @@ class App:
         self.speed, self.semis, self.manual_cents = 1.0, 0, 0.0
         self.auto = False
         self.auto_result = None      # (correction_cents, A_hz, confidence)
-        self.auto_vari_ok = False    # dead zone: user chose to correct with varispeed
+        self.auto_vari_ok = False    # dead zone: user chose "Fine-tune anyway"
+        self.wild = False            # "Wild speed": fine-tuning range ±500 cents
         self.analysing = False
         self._analysis_gen = 0
         self._stretch_job = None
@@ -603,8 +604,10 @@ class App:
         self.ctrl_reset(self.pitch_slider, 0, self.on_pitch)
         self.ctrl_reset(self.fine_slider, 0, self.on_fine)
         self.fine_scale = sc = ctk.CTkFrame(fc, fg_color="transparent")
-        ctk.CTkLabel(sc, text="−50 ct", font=font(11, mono=True), text_color=DIM, height=20).pack(side="left")
-        ctk.CTkLabel(sc, text="+50 ct", font=font(11, mono=True), text_color=DIM, height=20).pack(side="right")
+        self.fine_lo = ctk.CTkLabel(sc, text="−50 ct", font=font(11, mono=True), text_color=DIM, height=20)
+        self.fine_lo.pack(side="left")
+        self.fine_hi = ctk.CTkLabel(sc, text="+50 ct", font=font(11, mono=True), text_color=DIM, height=20)
+        self.fine_hi.pack(side="right")
         # the middle mark doubles as the VARISPEED tag (there is no room for it in the title row)
         self.fine_mid = ctk.CTkLabel(sc, text="0", font=font(11, mono=True), text_color=DIM, height=20,
                                      corner_radius=4)
@@ -619,6 +622,13 @@ class App:
                                       justify="left", wraplength=260)
         fc.bind("<Configure>", lambda e: self.vari_note.configure(wraplength=max(160, e.width - 40)),
                 add="+")
+        # Wild speed: varispeed over ±500 cents (turntable style); excludes Auto 440
+        self.wild_var = tk.BooleanVar(value=False)
+        self.wild_chk = ctk.CTkCheckBox(fc, text="Wild speed (±500 ct)", variable=self.wild_var,
+                                        command=self.on_wild, font=font(12), text_color=SOFT,
+                                        checkbox_width=18, checkbox_height=18, corner_radius=4, border_width=2,
+                                        fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color="#4a515b",
+                                        checkmark_color=ACCENT_TXT)
         self._style_fine()
 
         bottom = ctk.CTkFrame(cards, fg_color="transparent")
@@ -682,6 +692,11 @@ class App:
                                 hover_color="#232b40" if on else BTN_HOVER)
 
     def _style_fine(self):
+        self.wild_chk.pack_forget()
+        self._style_fine_body()
+        self.wild_chk.pack(anchor="w", padx=16, pady=(0, 12))   # always last in the card
+
+    def _style_fine_body(self):
         auto = self.auto
         self.fine_card.configure(fg_color=GREEN_BG if auto else CARD,
                                  border_color=GREEN_BORDER if auto else BORDER)
@@ -694,29 +709,32 @@ class App:
         self.fine_val.configure(text=cents_text(cents, 1 if (auto and self.in_dead_zone()) else 0),
                                 text_color=GREEN if auto else ACCENT_SOFT)
         self._style_vari()
+        rng = engine.WILD_RANGE if self.wild else engine.FINE_RANGE
+        self.fine_lo.configure(text=f"−{rng} ct")
+        self.fine_hi.configure(text=f"+{rng} ct")
         dead = auto and self.in_dead_zone()
         if not dead:
             self.vari_btn.pack_forget()
             self.vari_note.pack_forget()
         if not auto:
             self.fine_info.pack_forget()
-            self.fine_scale.pack(fill="x", padx=16, pady=(4, 12))
+            self.fine_scale.pack(fill="x", padx=16, pady=(4, 4))
             return
         self.fine_scale.pack_forget()
-        self.fine_info.pack(fill="x", padx=16, pady=(4, 12 if not dead else 6))
+        self.fine_info.pack(fill="x", padx=16, pady=(4, 6))
         if dead:
             a = self.auto_result[1]
             if self.auto_vari_ok:
-                self.fine_info.configure(text=f"  Varispeed: A = {a:.1f} Hz → 440 Hz", text_color=GREEN_TXT,
+                self.fine_info.configure(text=f"  Fine-tuned: A = {a:.1f} Hz → 440 Hz", text_color=GREEN_TXT,
                                          image=icon("check", GREEN, 13))
-                self.vari_btn.configure(text="Don't use varispeed")
+                self.vari_btn.configure(text="Don't fine-tune")
             else:
                 self.fine_info.configure(text=f"  Track is tuned to A = {a:.1f} Hz", text_color=GREEN_TXT,
                                          image=icon("check", GREEN, 13))
-                self.vari_btn.configure(text=f"Use varispeed ({cents_text(self.auto_result[0], 1)})")
+                self.vari_btn.configure(text=f"Fine-tune anyway ({cents_text(self.auto_result[0], 1)})")
             self.vari_btn.pack(anchor="w", padx=16, pady=(0, 6))
             self.vari_note.configure(text=self.length_note())
-            self.vari_note.pack(fill="x", padx=16, pady=(0, 12))
+            self.vari_note.pack(fill="x", padx=16, pady=(0, 8))
             return
         if self.analysing:
             self.fine_info.configure(text="Analysing the tuning…", text_color=GREEN_TXT)
@@ -1054,16 +1072,16 @@ class App:
         return self.manual_cents
 
     def in_dead_zone(self):
-        """Auto 440 found the track within ±4 cents of A440: left as is unless varispeed is chosen."""
+        """Auto 440 found the track within ±4 cents of A440: left as is unless "Fine-tune anyway"."""
         r = self.auto_result
-        return bool(r and r[1] and r[2] >= 0.12 and r[0] and abs(r[0]) <= engine.VARISPEED_MAX)
+        return bool(r and r[1] and r[2] >= 0.12 and r[0] and abs(r[0]) <= engine.DEAD_ZONE)
 
     def length_note(self):
         """Dead-zone hint: fine-tuning (varispeed) changes the length of the recording."""
         ms = ""
         try:
             secs = self.player.source_length() / engine.SR
-            ratio = engine.varispeed_params(self.auto_result[0])[0]
+            ratio = engine.vari_ratio(self.auto_result[0])
             d = int(round(secs * (1 / ratio - 1) * 1000))
             if secs > 0 and d:
                 ms = f" ({d:+d} ms)".replace("-", "−")
@@ -1076,11 +1094,9 @@ class App:
                 "Leave it off to keep the track's length as is.")
 
     def stretch_params(self):
-        """(speed, semitones, varispeed) for the player and export."""
-        cents = self.current_cents()
-        if engine.varispeed_applies(self.speed, self.semis, cents):
-            return engine.varispeed_params(cents) + (True,)
-        return self.speed, self.semis + cents / 100.0, False
+        """(speed, semitones, cents) for the player and export: speed and semitones go through
+        Rubber Band, the fine-tuning cents through varispeed (no tempo compensation)."""
+        return self.speed, self.semis, self.current_cents()
 
     def on_speed(self, v):
         self.speed = round(float(v), 2)
@@ -1102,6 +1118,9 @@ class App:
 
     def on_auto(self):
         self.auto = bool(self.auto_var.get())
+        if self.auto and self.wild:
+            self.wild_var.set(False)
+            self._set_wild(False)
         if self.auto:
             if self.lanes and self.auto_result is None:
                 self.start_analysis()
@@ -1111,6 +1130,24 @@ class App:
             self.fine_slider.set(self.manual_cents)
         self._style_fine()
         self._live(0)
+
+    def on_wild(self):
+        on = bool(self.wild_var.get())
+        if on and self.auto:
+            self.auto_var.set(False)
+            self.auto = False
+            self.fine_slider.configure(state="normal")
+        self._set_wild(on)
+        self._style_fine()
+        self._live(0)
+
+    def _set_wild(self, on):
+        """Wild speed widens the fine-tuning slider to ±500 cents; turning it off clamps back to ±50."""
+        self.wild = on
+        rng = engine.WILD_RANGE if on else engine.FINE_RANGE
+        self.manual_cents = max(-rng, min(rng, self.manual_cents))
+        self.fine_slider.configure(from_=-rng, to=rng, number_of_steps=2 * rng)
+        self.fine_slider.set(self.manual_cents)
 
     def toggle_auto_vari(self):
         self.auto_vari_ok = not self.auto_vari_ok
@@ -1350,7 +1387,7 @@ class ExportDialog:
         self.tags = engine.tags(app.speed, app.semis, app.current_cents(), app.auto)
         self.region = app.player.active_region()
         if self.region:
-            self.tags.append(engine.region_tag(*self.region, app.speed).lstrip("_"))
+            self.tags.append(engine.region_tag(*self.region, app.player.speed).lstrip("_"))
 
         body = ctk.CTkFrame(win, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=24, pady=(18, 0))
@@ -1390,7 +1427,8 @@ class ExportDialog:
         if app.auto and app.current_cents():
             items.append(("Auto 440", True))
         elif not app.auto and round(app.manual_cents):
-            items.append((f"Fine {app.manual_cents:+.0f} ct".replace("-", "−"), True))
+            word = "Wild speed" if app.wild else "Fine"
+            items.append((f"{word} {app.manual_cents:+.0f} ct".replace("-", "−"), True))
         for lane, g in zip(lanes, gains):
             if lane.track.mute:
                 items.append((f"{lane.track.label} muted", False))
@@ -1406,7 +1444,7 @@ class ExportDialog:
                          fg_color="#222a40" if strong else "#2a2e34",
                          text_color="#b8c7ff" if strong else "#a8aeb7").pack(side="left", padx=(0, 6))
         if self.region:
-            sp = app.speed
+            sp = app.player.speed
             span = f"{fmt_time(self.region[0] / engine.SR / sp)} – {fmt_time(self.region[1] / engine.SR / sp)}"
             note = ctk.CTkFrame(body, fg_color="#1d2333", border_color="#34508a", border_width=1,
                                 corner_radius=8)
@@ -1417,20 +1455,15 @@ class ExportDialog:
                                     f"{fades}.", font=font(12), text_color=ACCENT_SOFT,
                          wraplength=460, justify="left", image=icon("loop", ACCENT_SOFT, 15),
                          compound="left").pack(anchor="w", padx=12, pady=8)
-        speed_e, semis_e, vari = app.stretch_params()
-        self.vari_params = (speed_e, semis_e) if vari else None
-        self.vari_var = tk.BooleanVar(value=True)
-        if vari:
+        speed_e, semis_e, cents_e = app.stretch_params()
+        if abs(cents_e) > 1e-6:
             if self.region:
                 secs = (self.region[1] - self.region[0]) / engine.SR
             else:
                 secs = app.player.source_length() / engine.SR
-            ms = int(round(secs * (1 / speed_e - 1) * 1000))
-            ctk.CTkCheckBox(body, text=f"Use varispeed for fine-tuning: {ms:+d} ms".replace("-", "−"),
-                            variable=self.vari_var, font=font(13), text_color=TEXT, checkbox_width=18,
-                            checkbox_height=18, corner_radius=4, border_width=2, fg_color=ACCENT,
-                            hover_color=ACCENT_HOVER, border_color="#4a515b", checkmark_color=ACCENT_TXT).pack(
-                anchor="w", pady=(12, 0))
+            d = secs / speed_e * (1 / engine.vari_ratio(cents_e) - 1)
+            ctk.CTkLabel(body, text=f"Fine-tuning (varispeed) changes the length: {fmt_delta(d)}",
+                         font=font(12), text_color=MUTED, anchor="w").pack(fill="x", pady=(10, 0))
         if app.auto and app.semis and app.current_cents():
             warn = ctk.CTkFrame(body, fg_color=AMBER_BG, border_color=AMBER_BORDER, border_width=1,
                                 corner_radius=8)
@@ -1526,10 +1559,7 @@ class ExportDialog:
         tracks = [l.track for l in app.lanes]
         gains = app.player.gains()
         master = app.player.master
-        speed, semis = app.speed, app.semis + app.current_cents() / 100.0
-        varispeed = bool(self.vari_params and self.vari_var.get())
-        if varispeed:
-            speed, semis = self.vari_params
+        speed, semis, cents = app.stretch_params()
         self.busy = True
         self.go_btn.configure(state="disabled", text="Exporting…")
         self.prog.pack(fill="x", pady=(14, 0))
@@ -1541,7 +1571,7 @@ class ExportDialog:
                 w = engine.export(tracks, gains, master, speed, semis, mode, fmt, dest,
                                   progress=lambda f: app.events.put(("export_progress", f)),
                                   name_tags=self.tags, region=self.region, fade=app.player.loop_fade,
-                                  varispeed=varispeed)
+                                  cents=cents)
                 app.events.put(("export_done", True, w))
             except Exception as e:
                 traceback.print_exc()
