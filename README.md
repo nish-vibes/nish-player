@@ -34,6 +34,15 @@ click **More info → Run anyway**.
   renders from the original files at full quality. If pitch shift and Auto 440 are both on,
   the export window points out that combining them can cost a little sound quality.
 
+- **From YouTube…**: paste a link and NiSH Player saves the best-quality audio exactly as
+  YouTube delivers it (no re-encoding, no suffix) in its own folder. Optionally it also makes a
+  **karaoke version** (`_NoVox`) and **6 stems** (`_VOX`, `_DRM`, `_BASS`, `_GTR`, `_KEYS`, `_MISC`,
+  in a `<name> stems` folder) with the same AI as NiSH Stem Splitter, and can **tune them to
+  A = 440 Hz (beta)** – plus an extra tuned copy of the original (`_440hz`) if you like. Name the
+  file yourself or leave it blank to use the video title. The cogwheel sets the suffixes, the stems
+  folder name and the format (FLAC by default; WAV, MP3 320 or Opus 256). **Add to workspace**
+  loads the result straight into the player. The first split downloads the AI model once.
+
 Keyboard: **Space** play/pause, **Home** back to the start.
 
 ## Building it yourself
@@ -48,6 +57,10 @@ Local run (needs Python 3.12 and ffmpeg on PATH):
 pip install -r requirements.txt
 python app.py
 python tests/test_engine.py
+python tests/test_splitter.py
 ```
 
-Track names and the log file are stored in `%LOCALAPPDATA%\NiSH Player`.
+The YouTube/stems part also needs PyTorch (`pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu`).
+The build runs every Monday as well, so new YouTube fixes in yt-dlp get published automatically.
+
+Track names, YouTube settings and the log file are stored in `%LOCALAPPDATA%\NiSH Player`.

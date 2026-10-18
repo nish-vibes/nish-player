@@ -147,7 +147,7 @@ def peaks(audio, buckets=1600):
 STEM_NAMES = {
     "VOX": "Vocals", "VOCALS": "Vocals", "VOCAL": "Vocals", "DRM": "Drums", "DRUMS": "Drums",
     "BASS": "Bass", "GTR": "Guitar", "GUITAR": "Guitar", "PNO": "Piano", "PIANO": "Piano",
-    "OTH": "Other", "OTHER": "Other", "KAR": "Karaoke", "KARAOKE": "Karaoke",
+    "OTH": "Other", "OTHER": "Other", "KEYS": "Piano", "MISC": "Other", "KAR": "Karaoke", "KARAOKE": "Karaoke",
     "INST": "Instrumental", "INSTRUMENTAL": "Instrumental", "NOVOX": "Karaoke",
 }
 
@@ -579,6 +579,8 @@ def _encode(audio, dst, fmt):
            "-ac", "2", "-i", "-", "-af", EXPORT_LIMITER]
     if fmt == "MP3":
         cmd += ["-c:a", "libmp3lame", "-b:a", "320k", "-compression_level", "0"]
+    elif fmt == "OPUS":
+        cmd += ["-c:a", "libopus", "-b:a", "256k", "-ar", "48000"]
     elif fmt == "FLAC":
         cmd += ["-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24",
                 "-compression_level", "8"]

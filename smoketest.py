@@ -3,6 +3,7 @@
 Makes a small test song, loads it, clicks through every control, exports, and writes
 gui_smoketest.txt (plus screenshots) to <folder>. Exit code 0 = passed.
 """
+import os
 import time
 import traceback
 from pathlib import Path
@@ -260,6 +261,69 @@ def run(app, out_dir):
         yield 0.2
         assert not app.lanes and app.count_lbl.cget("text") == "NO TRACKS"
         log("ok: remove track and clear all")
+
+        # Add from YouTube – a local file stands in for the download; the AI split is real
+        import splitter
+        if os.environ.get("NISH_FAKE_SPLIT"):
+            def fake(audio, model, on_progress, check_cancel):
+                on_progress(0.5)
+                names = splitter.SIX if model == "htdemucs_6s" else ["vocals", "drums", "bass", "other"]
+                return {n: audio * (0.5 if n in ("vocals", "other") else 0.0) for n in names}
+            splitter.SEPARATOR = fake
+        mix = sum(engine.decode(f) for f in files)
+        song = out / "song" / "Smoke Song source.wav"
+        engine._encode(mix, song, "WAV")
+        app.open_youtube()
+        yield 0.5
+        pop = app.yt_pop
+        assert pop.is_open()
+        pop.url_var.set(str(song))
+        yield 1.0
+        assert pop.info and pop.info.get("title") == "Smoke Song source", pop.info
+        pop.name_var.set("Smoke Song")
+        pop.s.update(karaoke=True, stems=True, out_root=str(out / "yt"))
+        pop.tune_var.set(True)
+        pop.tuned_var.set(True)
+        pop.ws_var.set(True)
+        pop.refresh_setup()
+        pop.cog.invoke()
+        yield 0.3
+        assert pop.suf.winfo_ismapped()
+        pop.suf_vars["karaoke"].set("_NoVox")
+        pop.fmt.set("FLAC")
+        pop.suffixes_done()
+        yield 0.3
+        txt = pop.preview.cget("text")
+        for want in ("Smoke Song.wav", "Smoke Song_440hz.flac", "Smoke Song_NoVox_440hz.flac",
+                     "Smoke Song stems", "Smoke Song_VOX_440hz.flac"):
+            assert want in txt, (want, txt)
+        log("ok: YouTube popover: name, karaoke + stems, Auto 440 + tuned copy, suffixes, folder preview")
+        shot("3-youtube")
+        pop.go.invoke()
+        yield 0.5
+        job = app.yt_job
+        assert job is not None and pop.work.winfo_ismapped()
+        t0 = time.time()
+        while job.running:
+            assert time.time() - t0 < 1200, "YouTube job timed out"
+            yield 0.5
+        assert not job.error, job.error
+        folder = out / "yt" / "Smoke Song"
+        made = sorted(str(p.relative_to(folder)).replace("\\", "/") for p in folder.rglob("*.*"))
+        log(f"ok: split took {time.time() - t0:.0f}s, wrote {made}; {job.result['tuning']}")
+        assert len(made) == 9, made
+        t0 = time.time()
+        while len(app.lanes) < 6:
+            assert time.time() - t0 < 60, "stems were not added to the workspace"
+            yield 0.2
+        labels = [l.track.label for l in app.lanes]
+        assert labels == ["Vocals", "Drums", "Bass", "Guitar", "Piano", "Other"], labels
+        yield 0.5
+        shot("4-youtube-done")
+        log("ok: stems added to the workspace in order")
+        pop.cancel_or_back()
+        app.clear_all()
+        yield 0.2
         log("GUI SMOKETEST PASSED")
         app.smoketest_exit = 0
 
@@ -281,3 +345,24 @@ def run(app, out_dir):
             app.root.after(300, app.close)
 
     pump()
+
+
+def yt_selftest(url, out_dir):
+    """Download one real YouTube video (original only). Informational in the build."""
+    import splitter
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    report = out / "yt_selftest.txt"
+    try:
+        info = splitter.fetch_info(url)
+        o = splitter.default_settings()
+        o.update(karaoke=False, stems=False, tune=False, out_root=str(out))
+        res = splitter.run(url, "", o)
+        p = res["files"]["original"]
+        report.write_text(f"ok: '{info['title']}' {info['quality']} -> {p.name} "
+                          f"({p.stat().st_size // 1024} KB, {engine.probe_seconds(p):.1f} s)\nYT SELFTEST PASSED\n",
+                          encoding="utf-8")
+        return 0
+    except Exception:
+        report.write_text("FAILED:\n" + traceback.format_exc(), encoding="utf-8")
+        return 1

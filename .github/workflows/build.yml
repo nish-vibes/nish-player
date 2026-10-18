@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    # Weekly: rebuild with the newest yt-dlp so YouTube downloads keep working.
+    - cron: "41 4 * * 1"
 
 permissions:
   contents: write
@@ -15,25 +18,11 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Decide whether to publish a release
-        id: rel
-        shell: bash
-        run: |
-          V="v$(tr -d '[:space:]' < VERSION)"
-          echo "tag=$V" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_REF" == "refs/heads/main" ]] && ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "New version $V - will publish a release if everything passes."
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Release $V already exists (bump VERSION to publish a new one)."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -43,15 +32,41 @@ jobs:
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
+          pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt "pyinstaller>=6.11"
 
-      - name: Download ffmpeg (with Rubber Band)
+      - name: Decide whether to publish a release
+        id: rel
+        shell: bash
+        run: |
+          V="v$(tr -d '[:space:]' < VERSION)"
+          YTV=$(python -c "import yt_dlp.version as v; print(v.__version__)")
+          echo "ytdlp=$YTV" >> "$GITHUB_OUTPUT"
+          echo "yt-dlp $YTV"
+          PUBLISH=false
+          TAG="$V"
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json body -q .body 2>/dev/null || true)
+            if [[ "$LATEST" != *"yt-dlp $YTV"* ]]; then
+              TAG="$V-yt$YTV"; PUBLISH=true
+              echo "New yt-dlp - publishing $TAG"
+            fi
+          elif [[ "$GITHUB_REF" == "refs/heads/main" ]] && ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            PUBLISH=true
+            echo "New version $V - will publish a release if everything passes."
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+
+      - name: Download ffmpeg (with Rubber Band) and Deno (for YouTube)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force vendor, tmp | Out-Null
           Invoke-WebRequest https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -OutFile tmp/ffmpeg.zip
           Expand-Archive tmp/ffmpeg.zip tmp/ffmpeg
           Get-ChildItem tmp/ffmpeg -Recurse -Include ffmpeg.exe | Copy-Item -Destination vendor
+          Invoke-WebRequest https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip -OutFile tmp/deno.zip
+          Expand-Archive tmp/deno.zip vendor -Force
           $f = vendor/ffmpeg.exe -hide_banner -filters | Select-String rubberband
           if (-not $f) { throw "This ffmpeg build has no rubberband filter" }
           $f
@@ -61,6 +76,7 @@ jobs:
         run: |
           $env:PATH = "$PWD\vendor;$env:PATH"
           python tests/test_engine.py
+          python tests/test_splitter.py
 
       - name: Build exe
         run: pyinstaller NiSHPlayer.spec --noconfirm
@@ -70,7 +86,7 @@ jobs:
         run: |
           $out = Join-Path $PWD "gui-smoke"
           $p = Start-Process -FilePath "dist\NiSHPlayer\NiSHPlayer.exe" -ArgumentList "--gui-smoketest", $out -PassThru
-          if (-not $p.WaitForExit(300000)) { $p.Kill(); $timedOut = $true }
+          if (-not $p.WaitForExit(2400000)) { $p.Kill(); $timedOut = $true }
           $report = ""
           if (Test-Path "$out\gui_smoketest.txt") { $report = Get-Content "$out\gui_smoketest.txt" -Raw }
           $applog = Join-Path $env:LOCALAPPDATA "NiSH Player\log.txt"
@@ -84,6 +100,19 @@ jobs:
           }
           $short = (($report -replace "`r", "" -split "`n") | Where-Object { $_ -match "^(ok|skip|window)" }) -join "%0A"
           Write-Output "::notice title=gui-smoketest::$short"
+
+      - name: Try a real YouTube download (informational, YouTube often blocks CI servers)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD "yt-test"
+          $p = Start-Process -FilePath "dist\NiSHPlayer\NiSHPlayer.exe" -ArgumentList "--yt-selftest", "https://www.youtube.com/watch?v=jNQXAC9IVRw", $out -Wait -PassThru
+          $report = ""
+          if (Test-Path "$out\yt_selftest.txt") { $report = Get-Content "$out\yt_selftest.txt" -Raw }
+          Write-Output $report
+          $msg = $report -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'
+          if ($p.ExitCode -ne 0) { Write-Output "::warning title=youtube-test::$msg"; throw "YouTube test failed" }
+          Write-Output "::notice title=youtube-test::$msg"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -112,5 +141,6 @@ jobs:
           tag_name: ${{ steps.rel.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: NiSH Player ${{ steps.rel.outputs.tag }}
+          body: "Built with yt-dlp ${{ steps.rel.outputs.ytdlp }}."
           make_latest: true
           files: NiSHPlayer-windows.zip

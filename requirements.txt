@@ -1,5 +1,9 @@
+# PyTorch is installed separately (CPU build) - see .github/workflows/build.yml
 numpy
 sounddevice
 customtkinter==5.2.2
 tkinterdnd2
 pillow
+yt-dlp[default]
+demucs==4.0.1
+soundfile

@@ -33,127 +33,7 @@ if not os.environ.get("NISH_NO_DND"):
     except Exception:
         TkinterDnD = None
 
-# ---------- colours (from the design) ----------
-BG, HEADER, PANEL, LANE_BG, CARD = "#111316", "#16191d", "#15181c", "#171a1f", "#15181c"
-BORDER, BORDER2, BTN, BTN_HOVER = "#23272d", "#2c3138", "#1c2025", "#252a31"
-TEXT, TEXT2, SOFT, MUTED, DIM = "#eef0f3", "#d6d9de", "#b9bec6", "#8a919b", "#6b727c"
-ACCENT, ACCENT_HOVER, ACCENT_TXT, ACCENT_SOFT = "#7c9cff", "#94afff", "#0f1114", "#9fb4ff"
-GREEN, GREEN_TXT, GREEN_BG, GREEN_BORDER = "#5fd0a4", "#9fe3c6", "#14211c", "#2f6b55"
-RED, RED_TXT, RED_BG, RED_BORDER = "#ff4d4d", "#ff8a8a", "#3a1c1c", "#6b2a2a"
-AMBER, AMBER_TXT, AMBER_BG, AMBER_BORDER = "#e8c45a", "#f0d68a", "#2a2414", "#6b5520"
-MUTE_ON = ("#4a2626", "#e07b7b", "#ffb3b3")
-SOLO_ON = ("#4a3f1c", "#e8c45a", "#ffe08a")
-TRACK_COLORS = [("#7c9cff", "#33405e"), ("#f2a65a", "#5a4430"), ("#5fd0a4", "#2c5246"),
-                ("#e07bb8", "#55344a"), ("#c4b46a", "#4d4831"), ("#8fc3e0", "#344a57"),
-                ("#b48cf2", "#45385e"), ("#e08a7b", "#553530")]
-HEAD_W = 300   # width of the track header column
-UI = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
-MONO = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
-
-
-def font(size=13, weight="normal", mono=False):
-    return ctk.CTkFont(family=MONO if mono else UI, size=size, weight=weight)
-
-
-def fmt_time(seconds):
-    seconds = max(0, int(seconds))
-    return f"{seconds // 60}:{seconds % 60:02d}"
-
-
-def cents_text(c):
-    r = int(math.floor(abs(c) + 0.5)) * (1 if c >= 0 else -1)
-    return f"{r:+d} ct".replace("-", "−") if r else "0 ct"
-
-
-def blend(c1, c2, t):
-    """Mix two #rrggbb colours (t=0 -> c1, t=1 -> c2)."""
-    a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
-    b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
-    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
-
-
-# Master fader law: the scale marks sit at equal steps, like the design.
-FADER_POINTS = [(0.0, -60.0), (0.2, -24.0), (0.4, -12.0), (0.6, -6.0), (0.8, 0.0), (1.0, 6.0)]
-
-
-def fader_db(pos):
-    if pos <= 0.001:
-        return -math.inf
-    for (p0, d0), (p1, d1) in zip(FADER_POINTS, FADER_POINTS[1:]):
-        if pos <= p1:
-            return d0 + (d1 - d0) * (pos - p0) / (p1 - p0)
-    return 6.0
-
-
-def db_pos(db):
-    if db <= -60:
-        return 0.0
-    for (p0, d0), (p1, d1) in zip(FADER_POINTS, FADER_POINTS[1:]):
-        if db <= d1:
-            return p0 + (p1 - p0) * (db - d0) / (d1 - d0)
-    return 1.0
-
-
-# ---------- icons (drawn, so they look the same on every PC) ----------
-_ICONS = {}
-
-
-def icon(name, color, size=16):
-    key = (name, color, size)
-    if key in _ICONS:
-        return _ICONS[key]
-    from PIL import Image, ImageDraw
-    S = size * 4
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    w = max(4, S // 9)  # stroke width
-    if name == "play":
-        d.polygon([(S * .28, S * .16), (S * .28, S * .84), (S * .86, S * .5)], fill=color)
-    elif name == "pause":
-        d.rounded_rectangle([S * .24, S * .18, S * .42, S * .82], radius=S * .04, fill=color)
-        d.rounded_rectangle([S * .58, S * .18, S * .76, S * .82], radius=S * .04, fill=color)
-    elif name == "back":
-        d.rectangle([S * .2, S * .2, S * .2 + w, S * .8], fill=color)
-        d.polygon([(S * .8, S * .2), (S * .8, S * .8), (S * .32, S * .5)], fill=color)
-    elif name == "loop":
-        d.arc([S * .16, S * .2, S * .84, S * .8], 20, 320, fill=color, width=w)
-        d.polygon([(S * .6, S * .06), (S * .86, S * .27), (S * .56, S * .38)], fill=color)
-    elif name == "export":
-        d.line([(S * .5, S * .12), (S * .5, S * .62)], fill=color, width=w)
-        d.polygon([(S * .26, S * .44), (S * .74, S * .44), (S * .5, S * .72)], fill=color)
-        d.line([(S * .16, S * .86), (S * .84, S * .86)], fill=color, width=w)
-    elif name == "check":
-        d.line([(S * .16, S * .52), (S * .4, S * .76), (S * .86, S * .26)], fill=color, width=w + 2,
-               joint="curve")
-    elif name == "pencil":
-        d.line([(S * .24, S * .76), (S * .74, S * .26)], fill=color, width=w + 2)
-        d.polygon([(S * .12, S * .88), (S * .18, S * .66), (S * .34, S * .82)], fill=color)
-    elif name == "close":
-        d.line([(S * .24, S * .24), (S * .76, S * .76)], fill=color, width=w)
-        d.line([(S * .76, S * .24), (S * .24, S * .76)], fill=color, width=w)
-    elif name == "dot":
-        d.ellipse([S * .2, S * .2, S * .8, S * .8], fill=color)
-    elif name == "warn":
-        d.polygon([(S * .5, S * .08), (S * .94, S * .88), (S * .06, S * .88)], outline=color, width=w)
-        d.line([(S * .5, S * .36), (S * .5, S * .6)], fill=color, width=w)
-        d.ellipse([S * .45, S * .68, S * .55, S * .78], fill=color)
-    img = img.resize((size * 2, size * 2), Image.LANCZOS)
-    _ICONS[key] = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
-    return _ICONS[key]
-
-
-class ToolButton(ctk.CTkButton):
-    def __init__(self, master, text, command=None, width=None, height=36, primary=False, **kw):
-        opts = dict(text=text, command=command, height=height, corner_radius=8, font=font(13),
-                    fg_color=ACCENT if primary else BTN, hover_color=ACCENT_HOVER if primary else BTN_HOVER,
-                    text_color=ACCENT_TXT if primary else TEXT2, border_width=0 if primary else 1,
-                    border_color=BORDER2)
-        if width:
-            opts["width"] = width
-        if primary:
-            opts["font"] = font(13, "bold")
-        opts.update(kw)
-        super().__init__(master, **opts)
+from theme import *  # noqa: E402,F401,F403
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +330,9 @@ class App:
         self._analysis_gen = 0
         self._stretch_job = None
         self.export_dialog = None
+        self.yt_job = None
+        self.yt_pop = None
+        self._yt_status = None
         self.last_dir = str(Path.home() / "Music")
         self.dnd = TkinterDnD is not None
 
@@ -515,6 +398,9 @@ class App:
         right = ctk.CTkFrame(bar, fg_color="transparent")
         right.grid(row=0, column=2, padx=24, pady=14, sticky="e")
         ToolButton(right, "Open…", self.open_dialog).pack(side="left", padx=4)
+        self.yt_btn = ToolButton(right, "From YouTube…", self.open_youtube, image=icon("youtube", ACCENT_SOFT, 18),
+                                 compound="left")
+        self.yt_btn.pack(side="left", padx=4)
         ToolButton(right, "Clear all", self.clear_all).pack(side="left", padx=4)
         self.export_btn = ToolButton(right, "Export…", self.open_export, primary=True,
                                      image=icon("export", ACCENT_TXT, 15), compound="left")
@@ -755,7 +641,8 @@ class App:
         self.add_files(self.root.tk.splitlist(event.data))
         return event.action
 
-    def add_files(self, paths):
+    def add_files(self, paths, names=None):
+        """names: optional {path: track name} for files that have no saved name yet."""
         files = []
         for p in paths:
             p = Path(p)
@@ -773,16 +660,18 @@ class App:
         self.loading += len(files)
         self._draw_drop()
         labels = engine.load_labels()
+        names = {str(Path(k).resolve()): v for k, v in (names or {}).items()}
 
-        def work(f):
-            try:
-                audio = engine.decode(f)
-                self.events.put(("loaded", f, audio, labels.get(str(f.resolve()))))
-            except Exception as e:
-                self.events.put(("load_error", f, str(e)))
+        def work():  # one after another, so the lanes keep the order of the files
+            for f in files:
+                key = str(f.resolve())
+                try:
+                    audio = engine.decode(f)
+                    self.events.put(("loaded", f, audio, labels.get(key) or names.get(key)))
+                except Exception as e:
+                    self.events.put(("load_error", f, str(e)))
 
-        for f in files:
-            threading.Thread(target=work, args=(f,), daemon=True).start()
+        threading.Thread(target=work, daemon=True).start()
 
     def _add_track(self, path, audio, label):
         track = engine.Track(path, audio, label)
@@ -975,6 +864,7 @@ class App:
     def _tick(self):
         try:
             self._handle_events()
+            self._yt_status_tick()
             self._update_positions()
             self.fader.set_levels(self.player.take_meter())
             self.fader.show_clip(self.player.clip)
@@ -1028,9 +918,59 @@ class App:
                 self.export_dialog.done(ev[1], ev[2])
             elif kind == "export_progress" and self.export_dialog:
                 self.export_dialog.progress(ev[1])
+            elif kind == "yt_info" and ev[1] is self.yt_pop:
+                self.yt_pop.got_info(ev[2], ev[3])
+            elif kind == "yt_stage" and ev[1] is self.yt_job:
+                ev[1].progress[ev[2]] = ev[3]
+                self._yt_refresh()
+            elif kind == "yt_done" and ev[1] is self.yt_job:
+                self._yt_finished(ev[1], ev[2], ev[3])
+
+    # ----- Add from YouTube -----
+    def open_youtube(self):
+        import youtube_ui
+        if self.yt_pop is None or not self.yt_pop.frame.winfo_exists():
+            self.yt_pop = youtube_ui.YouTubePopover(self, self.yt_btn)
+        elif self.yt_pop.is_open():
+            self.yt_pop.close()
+            return
+        else:
+            self.yt_pop.show("work" if self.yt_job else "setup")
+            self.yt_pop.place()
+        self.yt_pop.url.focus_set()
+        self.root.bind("<Escape>", lambda e: self.yt_pop.close() if self.yt_pop and self.yt_pop.is_open() else None)
+
+    def _yt_refresh(self):
+        if self.yt_pop and self.yt_pop.is_open() and self.yt_pop.work.winfo_ismapped():
+            self.yt_pop.refresh_work()
+
+    def _yt_finished(self, job, result, error):
+        job.running = False
+        job.result, job.error = result, error
+        if result and job.opts["workspace"]:
+            job.progress["load"] = 1.0
+            self.add_files([p for p, _ in result["load"]], names={str(p): lbl for p, lbl in result["load"]})
+        if result:
+            self.flash(f"Saved “{result['name']}” from YouTube.")
+        elif error and error != "Cancelled.":
+            self.flash("YouTube: " + error[:80])
+        self._yt_refresh()
+
+    def _yt_status_tick(self):
+        job = self.yt_job
+        text = None
+        if job and job.running and not (self.yt_pop and self.yt_pop.is_open()):
+            text = "YouTube: " + job.status_text()
+        if text != self._yt_status:
+            if text:
+                self.status.configure(text=text, text_color=ACCENT_SOFT)
+            elif self._yt_status:
+                self.status.configure(text="", text_color=AMBER_TXT)
+            self._yt_status = text
 
     def flash(self, msg, ms=4000):
-        self.status.configure(text=msg)
+        self._yt_status = None
+        self.status.configure(text=msg, text_color=AMBER_TXT)
         self.root.after(ms, lambda: self.status.configure(
             text="" if self.player.stream is not None else "No audio output found – playback is off, export still works"))
 
@@ -1310,6 +1250,9 @@ def run_gui(files=(), smoketest_dir=None):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--yt-selftest":
+        import smoketest
+        sys.exit(smoketest.yt_selftest(sys.argv[2], sys.argv[3]))
     if len(sys.argv) >= 3 and sys.argv[1] == "--gui-smoketest":
         app = run_gui(smoketest_dir=sys.argv[2])
         sys.exit(getattr(app, "smoketest_exit", 1))
