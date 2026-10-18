@@ -172,6 +172,13 @@ def run(app, out_dir):
         assert app.busy_lbl.cget("text").strip() == "Polishing…" and app.busy_lbl.cget("image"), \
             app.busy_lbl.cget("text")
         log("ok: spinner + 'Polishing…' while the high-quality version renders")
+        t0 = time.time()
+        while app.player.render_busy:
+            assert time.time() - t0 < 90
+            yield 0.2
+        yield 0.2
+        assert app.busy_lbl.cget("text").startswith("Tip") and not app.busy_lbl._label.cget("image"), \
+            "spinner should disappear when done"
         yield 0.5
         t0 = time.time()
         while app.player.render_busy or any(t.buf_key != (0.85, -2.0) for t in app.player.tracks):
@@ -180,7 +187,7 @@ def run(app, out_dir):
         n0 = app.player.source_length()
         assert abs(app.player.length() / n0 - 1 / 0.85) < 0.02
         assert abs(app.player.position() - 0.5) < 0.02
-        assert app.speed_val.cget("text") == "0.85×" and app.pitch_val.cget("text") == "−2 st"
+        assert app.speed_val.cget("text") == "0.85×" and app.pitch_val.cget("text") == "−2 semitones"
         log(f"ok: live speed 0.85x / pitch -2 st in {time.time() - t0:.1f}s, playhead kept")
 
         # manual fine tune, then Auto 440 overrides it
@@ -243,8 +250,8 @@ def run(app, out_dir):
         yield 0.8
         d = app.export_dialog
         assert d is not None and d.has_warning, "export warning missing"
-        assert d.tags == ["0.85x", "-2st", "440hz"], d.tags
-        assert d.name_var.get() == "My Song_mix_0.85x_-2st_440hz", d.name_var.get()
+        assert d.tags == ["0.85x", "-2semitones", "440hz"], d.tags
+        assert d.name_var.get() == "My Song_mix_0.85x_-2semitones_440hz", d.name_var.get()
         try:
             from PIL import ImageGrab
             w = d.win
@@ -265,7 +272,7 @@ def run(app, out_dir):
         assert d.written, d.msg.cget("text")
         mp3 = Path(d.written[0])
         secs = engine.probe_seconds(mp3)
-        assert mp3.name == "My Song_mix_0.85x_-2st_440hz.mp3" and abs(secs - 8 / 0.85) < 0.2, (mp3, secs)
+        assert mp3.name == "My Song_mix_0.85x_-2semitones_440hz.mp3" and abs(secs - 8 / 0.85) < 0.2, (mp3, secs)
         log(f"ok: exported mix {mp3.name} ({secs:.2f} s)")
         d.mode.set("each")
         d.fmt.set("WAV")
@@ -276,8 +283,8 @@ def run(app, out_dir):
             assert time.time() - t0 < 120, "export timed out"
             yield 0.2
         names = sorted(Path(p).name for p in d.written)
-        assert names == ["My Song_DRM_0.85x_-2st_440hz.wav", "My Song_OTH_0.85x_-2st_440hz.wav",
-                         "My Song_VOX_0.85x_-2st_440hz.wav"], names
+        assert names == ["My Song_DRM_0.85x_-2semitones_440hz.wav", "My Song_OTH_0.85x_-2semitones_440hz.wav",
+                         "My Song_VOX_0.85x_-2semitones_440hz.wav"], names
         log(f"ok: exported each track: {names}")
         d.close()
         yield 0.2

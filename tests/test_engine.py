@@ -62,7 +62,7 @@ def main(out_dir=None):
     assert engine.song_name([out / n for n in files]) == "My Song"
     assert engine.song_name(["a/Full song.mp3"]) == "Full song"
     assert engine.is_vocal("My Song_VOX.wav") and not engine.is_vocal("My Song_DRM.wav")
-    assert engine.tags(0.85, -2, 13, True) == ["0.85x", "-2st", "440hz"]
+    assert engine.tags(0.85, -2, 13, True) == ["0.85x", "-2semitones", "440hz"]
     assert engine.tags(1.0, 0, 12, False) == ["+12ct"]
     assert engine.tags(1.0, 0, 0, False) == []
     ok("names and tags")

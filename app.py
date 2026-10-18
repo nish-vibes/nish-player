@@ -250,8 +250,8 @@ class Lane:
 # ---------------------------------------------------------------------------
 
 class MasterFader:
-    W, H = 132, 196
-    TOP, BOTTOM = 10, 178
+    W, H = 132, 164
+    TOP, BOTTOM = 10, 146
     FX = 66     # fader centre
     MX = 100    # meters
 
@@ -261,20 +261,20 @@ class MasterFader:
         self.levels = [0.0, 0.0]
         self.card = ctk.CTkFrame(parent, fg_color="#1a1d22", border_color=BORDER2, border_width=1,
                                  corner_radius=10)
-        top = ctk.CTkFrame(self.card, fg_color="transparent")
-        top.pack(fill="x", padx=12, pady=(12, 4))
-        ctk.CTkLabel(top, text="Master", font=font(14, "bold"), text_color=TEXT).pack(side="left")
-        self.clip_btn = ctk.CTkButton(top, text="CLIP", compound="left", width=62, height=26, corner_radius=6,
-                                      font=font(10, "bold", True), fg_color="transparent",
-                                      border_width=1, command=self.reset_clip)
-        self.clip_btn.pack(side="right")
-        self.clip_shown = None
+        # Title centred over the fader; level and the clip light underneath
+        ctk.CTkLabel(self.card, text="Master", font=font(14, "bold"), text_color=TEXT, height=20).pack(
+            pady=(12, 4))
         self.canvas = tk.Canvas(self.card, width=self.W, height=self.H, bg="#1a1d22",
                                 highlightthickness=0, cursor="sb_v_double_arrow")
         self.canvas.pack(padx=8)
         self.db_lbl = ctk.CTkLabel(self.card, text="0.0 dB", font=font(13, mono=True),
-                                   text_color=ACCENT_SOFT)
-        self.db_lbl.pack(pady=(2, 10))
+                                   text_color=ACCENT_SOFT, height=20)
+        self.db_lbl.pack(pady=(2, 6))
+        self.clip_btn = ctk.CTkButton(self.card, text="CLIP", compound="left", width=62, height=26,
+                                      corner_radius=6, font=font(10, "bold", True), fg_color="transparent",
+                                      border_width=1, command=self.reset_clip)
+        self.clip_btn.pack(pady=(0, 12))
+        self.clip_shown = None
         c = self.canvas
         for e in ("<Button-1>", "<B1-Motion>"):
             c.bind(e, self._drag)
@@ -524,14 +524,8 @@ class App:
         box = ctk.CTkFrame(parent, fg_color=PANEL, border_color=BORDER2, border_width=1, corner_radius=12)
         box.grid(row=2, column=0, sticky="ew", pady=(16, 0))
         box.grid_columnconfigure(0, weight=1)
-        hdr = ctk.CTkFrame(box, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=20, pady=(12, 2))
-        ctk.CTkLabel(hdr, text="MASTER", font=font(11), text_color=MUTED).pack(side="left")
-        ctk.CTkLabel(hdr, text="SPEED, PITCH & TUNING APPLY TO ALL TRACKS", font=font(11),
-                     text_color=MUTED).pack(side="right")
-
         body = ctk.CTkFrame(box, fg_color="transparent")
-        body.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 16))
+        body.grid(row=1, column=0, sticky="ew", padx=20, pady=16)
         body.grid_columnconfigure(0, weight=1)
         left = ctk.CTkFrame(body, fg_color="transparent")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
@@ -587,7 +581,7 @@ class App:
         self.fine_card = fc
         top = ctk.CTkFrame(fc, fg_color="transparent")
         top.pack(fill="x", padx=16, pady=(12, 4))
-        ctk.CTkLabel(top, text="Fine tune", font=font(14, "bold"), text_color=TEXT).pack(side="left")
+        ctk.CTkLabel(top, text="Fine-tuning", font=font(14, "bold"), text_color=TEXT).pack(side="left")
         self.fine_val = ctk.CTkLabel(top, text="0 ct", font=font(13, "bold", True), anchor="w")
         self.fine_val.pack(side="left", padx=(10, 0))
         ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color="#3a3220",
@@ -612,7 +606,7 @@ class App:
 
         bottom = ctk.CTkFrame(cards, fg_color="transparent")
         bottom.grid(row=1, column=0, columnspan=3, pady=(12, 0))
-        ctk.CTkButton(bottom, text="Reset speed & pitch", height=32, corner_radius=6, font=font(13),
+        ctk.CTkButton(bottom, text="Reset", height=32, corner_radius=6, font=font(13),
                       fg_color="transparent", hover_color=BTN_HOVER, border_color=BORDER2,
                       border_width=1, text_color="#a8aeb7", command=self.reset_stretch).pack(side="left")
         self.busy_lbl = ctk.CTkLabel(bottom, text="", font=font(12), text_color=ACCENT_SOFT, compound="left")
@@ -689,7 +683,8 @@ class App:
         self.fine_scale.pack_forget()
         self.fine_info.pack(fill="x", padx=16, pady=(4, 12))
         if self.analysing:
-            self.fine_info.configure(text="Analysing the tuning…", text_color=GREEN_TXT, image=None)
+            self.fine_info.configure(text="Analysing the tuning…", text_color=GREEN_TXT)
+            no_image(self.fine_info)
         elif not self.lanes:
             self.fine_info.configure(text="  Auto 440 is on – add a file to analyse it",
                                      text_color=GREEN_TXT, image=icon("check", GREEN, 13))
@@ -1024,7 +1019,8 @@ class App:
 
     def on_pitch(self, v):
         self.semis = int(round(float(v)))
-        self.pitch_val.configure(text=f"{engine.fmt_semitones(self.semis)} st".replace("-", "−"))
+        self.pitch_val.configure(text=f"{engine.fmt_semitones(self.semis)} semitones".replace("-", "−")
+                                 if self.semis else "0 semitones")
         self._live()
 
     def on_fine(self, v):
@@ -1098,10 +1094,11 @@ class App:
             self.busy_lbl.configure(text="  Polishing…", text_color=ACCENT_SOFT,
                                     image=icon(f"spin{frame}", ACCENT_SOFT, 14))
         elif self.player.render_error:
-            self.busy_lbl.configure(text="Couldn't apply speed & pitch – see the log", text_color=AMBER_TXT,
-                                    image=None)
+            self.busy_lbl.configure(text="Couldn't apply speed & pitch – see the log", text_color=AMBER_TXT)
+            no_image(self.busy_lbl)
         else:
-            self.busy_lbl.configure(text="Tip: Ctrl+click a slider to reset it", text_color=DIM, image=None)
+            self.busy_lbl.configure(text="Tip: Ctrl+click a slider to reset it", text_color=DIM)
+            no_image(self.busy_lbl)
 
     # ----- loop -----
     def _tick(self):
@@ -1301,7 +1298,7 @@ class ExportDialog:
         if abs(app.speed - 1) > 1e-6:
             items.append((f"Speed {app.speed:.2f}×", True))
         if app.semis:
-            items.append((f"Pitch {engine.fmt_semitones(app.semis)} st".replace("-", "−"), True))
+            items.append((f"Pitch {engine.fmt_semitones(app.semis)} semitones".replace("-", "−"), True))
         if app.auto and app.current_cents():
             items.append(("Auto 440", True))
         elif not app.auto and round(app.manual_cents):
@@ -1460,7 +1457,8 @@ class ExportDialog:
             self.cancel_btn.configure(text="Close")
             self.show_btn.pack(side="left")
         else:
-            self.msg.configure(text=f"Export failed: {result}", text_color=AMBER_TXT, image=None)
+            self.msg.configure(text=f"Export failed: {result}", text_color=AMBER_TXT)
+            no_image(self.msg)
 
     def show_folder(self):
         target = Path(self.written[0]) if self.written else Path(self.folder)

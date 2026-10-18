@@ -154,3 +154,12 @@ class ToolButton(ctk.CTkButton):
 
 
 # ---------------------------------------------------------------------------
+
+
+def no_image(label):
+    """CTkLabel keeps its old picture when given image=None; this really removes it."""
+    label.configure(image=None)
+    try:
+        label._label.configure(image="")
+    except Exception:
+        pass

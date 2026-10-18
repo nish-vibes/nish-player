@@ -214,7 +214,7 @@ def tags(speed, semis, cents, auto440):
     if abs(speed - 1) > 1e-6:
         t.append(f"{speed:.2f}".rstrip("0").rstrip(".") + "x")
     if semis:
-        t.append(fmt_semitones(semis) + "st")
+        t.append(fmt_semitones(semis) + "semitones")
     if auto440:
         t.append("440hz")
     elif abs(cents) >= 0.5:
