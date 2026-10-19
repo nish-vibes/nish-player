@@ -71,6 +71,9 @@ def main():
         p.wait(timeout=120)
         log = tmp / "NiSHPlayer.update.log"
         print(log.read_text(encoding="utf-8") if log.exists() else "(no log)")
+        psout = Path(str(script) + ".out.txt")
+        print("PowerShell:", psout.read_text(errors="replace") if psout.exists() else "(no output file)",
+              "exit", p.returncode)
         assert dummy.poll() is not None, "the helper should wait for the app to close"
         assert (app_dir / "NiSHPlayer.exe").read_text() == "new"
         assert (app_dir / "_internal" / "new.txt").exists() and not (app_dir / "_internal" / "old.txt").exists()

@@ -204,12 +204,23 @@ def write_script(target, stage, pid, restart=True, log=None):
 
 
 def run_script(script, wait=False):
-    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-           "-File", str(script)]
+    """Start the helper hidden. Its own output goes to '<script>.out.txt' (for troubleshooting)."""
+    script = Path(script)
+    exe = "powershell"
+    if os.name == "nt":   # the full path, in case PATH is unusual
+        cand = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        if cand.is_file():
+            exe = str(cand)
+    cmd = [exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(script)]
     flags = 0
-    if os.name == "nt":
-        flags = subprocess.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
-    p = subprocess.Popen(cmd, creationflags=flags, close_fds=True, cwd=str(Path(script).parent))
+    if os.name == "nt":   # no window, and not tied to the app's console or process group
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    out = open(script.with_name(script.name + ".out.txt"), "wb")
+    try:
+        p = subprocess.Popen(cmd, creationflags=flags, stdin=subprocess.DEVNULL, stdout=out,
+                             stderr=subprocess.STDOUT, cwd=str(script.parent))
+    finally:
+        out.close()       # the child keeps its own handle
     if wait:
         p.wait()
     return p
