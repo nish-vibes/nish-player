@@ -1202,8 +1202,6 @@ class App:
             elif kind == "settings_refresh":
                 if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
                     self.settings_pop.refresh()
-            elif kind == "update_ready":
-                self.install_update(ev[1])
             elif kind == "yt_done" and ev[1] is self.yt_job:
                 self._yt_finished(ev[1], ev[2], ev[3])
 

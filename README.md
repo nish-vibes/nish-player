@@ -46,8 +46,8 @@ click **More info → Run anyway**.
 - **Export folder**: exports go to your Desktop until you pick another folder with **Change…**;
   that folder then becomes your default.
 - **Updates** are always manual: the cogwheel in the top right shows your version and has
-  **Check for updates** → **Download and update**. The app downloads the new version, closes,
-  swaps it in and restarts; your settings (export folder, track names, YouTube settings) are kept
+  **Check for updates** → **Download**. When the download is done it says so, and **Close and update**
+  closes the app, swaps in the new version and starts it again; your settings (export folder, track names, YouTube settings) are kept
   in `%LOCALAPPDATA%\NiSH Player` and are never touched. If YouTube downloads fail five times on
   one day, the cogwheel turns amber and suggests checking for an update.
 

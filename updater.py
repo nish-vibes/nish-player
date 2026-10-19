@@ -1,7 +1,8 @@
 """Manual updates from the GitHub releases page.
 
 check()     -> asks GitHub for the latest release
-download()  -> downloads its zip and unpacks it into a folder next to the app ("<app>.new")
+download()  -> downloads its zip; unpack() puts it in a folder next to the app ("<app>.new")
+               (the menu then says it's ready; nothing is installed until the user says so)
 install()   -> starts a small PowerShell helper that waits for the app to close, swaps the folders
                (keeping the old one until the new one is in place, and putting it back if anything
                fails), starts the new version and removes the old one.
@@ -136,6 +137,23 @@ def unpack(zip_path, target=None):
     os.replace(exe.parent, stage)
     shutil.rmtree(tmp, ignore_errors=True)
     return stage
+
+
+def staged_update():
+    """(folder, tag) of an update that was downloaded but not installed yet, else None."""
+    d = app_dir()
+    if d is None:
+        return None
+    stage = staging_dir(d)
+    tag_file = stage / "build_tag.txt"
+    try:
+        if (stage / EXE).is_file() and tag_file.is_file():
+            tag = tag_file.read_text(encoding="utf-8").strip()
+            if tag and tag != current_tag():
+                return stage, tag
+    except OSError:
+        pass
+    return None
 
 
 SCRIPT = r'''$ErrorActionPreference = "Stop"

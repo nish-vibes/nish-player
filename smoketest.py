@@ -404,8 +404,22 @@ def run(app, out_dir):
             yield 0.1
         yield 0.3
         assert m.state == "newer" and "9.9.9 is available (268 MB)" in m.msg.cget("text"), m.msg.cget("text")
-        assert m.btn.cget("text") in ("Download and update", "Open download page"), m.btn.cget("text")
+        assert m.btn.cget("text") in ("Download", "Open download page"), m.btn.cget("text")
         shot("6-update")
+        # after the download: a 'ready' message and a separate Close and update button
+        installed = []
+        real_install = app.install_update
+        app.install_update = lambda stage: installed.append(stage)
+        m.state, m.stage = "ready", out / "fake.new"
+        m.refresh()
+        yield 0.2
+        assert "downloaded and ready to install" in m.msg.cget("text") and m.btn.cget("text") == "Close and update"
+        shot("6a-update-ready")
+        assert not installed
+        m.btn.invoke()
+        yield 0.2
+        assert installed == [out / "fake.new"] and m.state == "installing"
+        app.install_update = real_install
         updater.check = lambda: {"tag": updater.current_tag(), "newer": False, "url": None, "size": None,
                                  "notes": ""}
         m.state = "idle"
@@ -426,7 +440,7 @@ def run(app, out_dir):
         m.close()
         settings.put("yt_failures", {})
         app._style_cog()
-        log("ok: cog menu: Check for updates -> 'Download and update' / latest version; "
+        log("ok: cog menu: Check for updates -> Download -> ready -> Close and update / latest version; "
             "amber notice after 5 failed YouTube extractions today")
 
         # loop area: drag on the timeline, loop button, export only the area, clear with ×

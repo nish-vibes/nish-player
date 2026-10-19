@@ -1,4 +1,4 @@
-"""The cogwheel menu in the top right: version, Check for updates, Download and update.
+"""The cogwheel menu in the top right: version, Check for updates, Download, Close and update.
 
 Updates are always manual. If YouTube extraction fails five times on one day, the cogwheel turns
 amber and this menu suggests checking for an update (new yt-dlp builds fix most YouTube problems).
@@ -24,11 +24,16 @@ class SettingsMenu:
         self.app = app
         self.root = app.root
         self.anchor = anchor
-        self.state = "idle"         # idle, checking, latest, newer, downloading, installing, error
+        self.state = "idle"   # idle, checking, latest, newer, downloading, preparing, ready, installing, error
         self.release = None
         self.error = ""
         self.fraction = 0.0
         self.cancel = False
+        self.stage = None
+        ready = updater.staged_update()    # downloaded earlier but not installed yet
+        if ready:
+            self.stage, tag = ready
+            self.state, self.release = "ready", {"tag": tag}
         f = self.frame = ctk.CTkFrame(self.root, fg_color=POP_BG, border_color=POP_BORDER, border_width=1,
                                       corner_radius=14, width=self.W)
         ctk.CTkFrame(f, fg_color="transparent", width=self.W, height=1).pack(side="bottom")  # fixed width
@@ -99,7 +104,7 @@ class SettingsMenu:
             size = f" ({rel['size'] / 1e6:.0f} MB)" if rel.get("size") else ""
             self._msg(f"Version {updater.version_text(rel['tag'])} is available{size}.")
             if updater.can_update():
-                btn, primary = "Download and update", True
+                btn, primary = "Download", True
             else:
                 btn = "Open download page"
         elif st == "downloading":
@@ -107,8 +112,16 @@ class SettingsMenu:
             self.bar.set(self.fraction)
             self.bar.pack(fill="x", pady=(0, 10))
             btn = "Cancel"
+        elif st == "preparing":
+            self._msg("Unpacking the download…", spin=True)
+            btn = None
+        elif st == "ready":
+            self._msg(f"Version {updater.version_text(rel['tag'])} is downloaded and ready to install. "
+                      "NiSH Player will close, update and start again.")
+            self.msg.configure(text_color=GREEN_TXT)
+            btn, primary = "Close and update", True
         elif st == "installing":
-            self._msg("Installing – NiSH Player restarts in a moment…", spin=True)
+            self._msg("Closing and updating…", spin=True)
             btn = None
         else:
             self._msg(self.error or "Something went wrong.", warn=True)
@@ -140,7 +153,7 @@ class SettingsMenu:
             self.root.after(90, self._spin_tick)
 
     def _spin_tick(self):
-        if self.frame.winfo_exists() and self.state in ("checking", "downloading", "installing"):
+        if self.frame.winfo_exists() and self.state in ("checking", "downloading", "preparing", "installing"):
             self.refresh()
 
     def _set(self, state, **kw):
@@ -161,6 +174,10 @@ class SettingsMenu:
                 webbrowser.open(updater.PAGE)
         elif st == "downloading":
             self.cancel = True
+        elif st == "ready":
+            self.state = "installing"
+            self.refresh()
+            self.app.install_update(self.stage)
 
     def start_check(self):
         self.state = "checking"
@@ -191,13 +208,13 @@ class SettingsMenu:
             try:
                 updater.download(rel["url"], zpath, progress=lambda f: self._set("downloading", fraction=f),
                                  cancelled=lambda: self.cancel)
-                self._set("installing")
+                self._set("preparing")
                 stage = updater.unpack(zpath)
                 try:
                     zpath.unlink()
                 except OSError:
                     pass
-                self.app.events.put(("update_ready", stage))
+                self._set("ready", stage=stage)     # the user decides when to close and update
             except Exception as e:
                 traceback.print_exc()
                 if self.cancel:
