@@ -101,11 +101,6 @@ def atempo_chain(t):
     return [f"atempo={p:.6f}" for p in parts]
 
 
-DEAD_ZONE = 4.0       # cents: Auto 440 leaves a track this close to A440 as it is
-FINE_RANGE = 50       # cents, normal fine-tuning range
-WILD_RANGE = 500      # cents, "Wild speed" range
-
-
 def vari_ratio(cents):
     """Varispeed (fine-tuning) ratio: pitch and tempo move together, like a turntable."""
     return 2 ** (float(cents) / 1200.0)

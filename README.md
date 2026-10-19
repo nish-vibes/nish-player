@@ -26,19 +26,13 @@ click **More info → Run anyway**.
 - **Ctrl+click** any slider (or the master fader) to put it back to its default.
 - **Fine-tuning** (±50 cents) and **Auto 440 (beta)**: Auto 440 measures how far the song is
   from A = 440 Hz and sets the fine-tuning slider for you (it turns green and locks while Auto 440
-  is on). Turn it off and your own value comes back. Fine-tuning is always done with **varispeed** –
-  a clean, turntable-style resample, so pitch and tempo move together and the length changes a little.
-  Speed and Pitch use Rubber Band, always in a single pass: when tuning down, varispeed comes first;
-  when tuning up, Rubber Band comes first. If Auto 440 finds the song within ±4 cents of A440 it
-  leaves it as is, shows its tuning and offers **Fine-tune anyway**.
-- **Wild speed** widens fine-tuning to ±500 cents (turntable style, about 0.75×–1.33×).
-  Wild speed and Auto 440 turn each other off.
+  is on); if it can't detect the tuning it tells you and turns itself off. Fine-tuning works like a
+  turntable (varispeed), so it slightly changes the length of the track. Speed and Pitch use Rubber Band.
 - **Master fader** with L/R level meters and a **CLIP** light that stays on until you click it.
   A gentle safety limiter keeps the sound from distorting.
 - **Export** the mix as you hear it (mute, solo and volume applied) or each track separately,
   as WAV (24-bit), FLAC or MP3 320 kbps, with speed, pitch and tuning included. Export always
-  renders from the original files at full quality. If pitch shift and Auto 440 are both on,
-  the export window points out that combining them can cost a little sound quality.
+  renders from the original files at full quality.
 
 - **From YouTube…**: paste a link and NiSH Player saves the best-quality audio exactly as
   YouTube delivers it (no re-encoding, no suffix) in its own folder. Optionally it also makes a

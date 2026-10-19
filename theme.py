@@ -31,17 +31,6 @@ def fmt_time(seconds):
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
-def fmt_delta(seconds):
-    """Length change: '−430 ms', '+12.4 s', '−1:05'."""
-    sign = "−" if seconds < 0 else "+"
-    a = abs(seconds)
-    if a < 10:
-        return f"{sign}{int(round(a * 1000))} ms"
-    if a < 60:
-        return f"{sign}{a:.1f} s"
-    return f"{sign}{int(a) // 60}:{int(a) % 60:02d}"
-
-
 def cents_text(c, decimals=0):
     if decimals and abs(c) >= 0.05:
         return f"{c:+.{decimals}f} ct".replace("-", "−")

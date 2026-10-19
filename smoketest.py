@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 import engine
+from theme import cents_text
 
 
 def make_song(folder, seconds=8.0, a_hz=436.8):
@@ -205,9 +206,9 @@ def run(app, out_dir):
         assert 9 <= corr <= 16 and abs(a_hz - 436.8) < 1.5, app.auto_result
         assert app.fine_slider.cget("state") == "disabled"
         assert abs(app.fine_slider.get() - corr) <= 1
-        assert "Set by Auto 440" in app.fine_info.cget("text"), app.fine_info.cget("text")
-        log(f"ok: Auto 440 detected A = {a_hz:.1f} Hz -> {corr:+.1f} ct, slider locked: "
-            f"{app.fine_info.cget('text')}")
+        assert app.fine_val.cget("text") == cents_text(corr), app.fine_val.cget("text")
+        log(f"ok: Auto 440 detected A = {a_hz:.1f} Hz -> {corr:+.1f} ct, slider locked at "
+            f"{app.fine_val.cget('text')}")
         t0 = time.time()
         want = (round(app.speed, 6), -2.0, round(app.current_cents(), 6))   # Rubber Band, then varispeed
         while app.player.render_busy or any(t.buf_key != want for t in app.player.tracks):
@@ -245,11 +246,11 @@ def run(app, out_dir):
         yield 0.3
         shot("1-loaded")
 
-        # export dialog: warning only here (pitch shift + Auto 440)
+        # export dialog
         app.open_export()
         yield 0.8
         d = app.export_dialog
-        assert d is not None and d.has_warning, "export warning missing"
+        assert d is not None
         assert d.tags == ["0.85x", "-2semitones", "440hz"], d.tags
         assert d.name_var.get() == "My Song_mix_0.85x_-2semitones_440hz", d.name_var.get()
         try:
@@ -319,11 +320,9 @@ def run(app, out_dir):
             app.on_fine(c)
             yield 0.2
             assert app.player.varispeed and app.player.key() == (1.0, 0.0, float(c)), app.player.key()
-            assert "VARISPEED" in app.fine_mid.cget("text") and app.fine_mid.winfo_ismapped()
         app.open_export()
         yield 0.6
         d = app.export_dialog
-        assert not hasattr(d, "vari_var")          # no Rubber Band escape hatch any more
         d.folder = str(out / "export-vari")
         d.fmt.set("WAV")
         d.mode.set("mix")
@@ -337,58 +336,40 @@ def run(app, out_dir):
         assert abs(sv - n_sec / engine.vari_ratio(-40)) < 0.03, (sv, n_sec)
         log(f"ok: fine-tuning is always varispeed (live + export −40 ct: {n_sec:.3f} s → {sv:.3f} s)")
 
-        # Wild speed: ±500 ct, and it excludes Auto 440 (both ways)
-        app.wild_var.set(True)
-        app.on_wild()
-        yield 0.2
-        assert app.wild and float(app.fine_slider.cget("to")) == 500 and app.fine_hi.cget("text") == "+500 ct"
-        app.fine_slider.set(-300)
-        app.on_fine(-300)
-        yield 0.2
-        assert app.player.key() == (1.0, 0.0, -300.0)
-        shot("4a-wild")
-        app.auto_var.set(True)
-        app.on_auto()
-        yield 0.2
-        assert app.auto and not app.wild and not app.wild_var.get() and app.manual_cents == -50
-        assert float(app.fine_slider.cget("to")) == 50
-        app.wild_var.set(True)
-        app.on_wild()
-        yield 0.2
-        assert app.wild and not app.auto and not app.auto_var.get()
-        app.wild_var.set(False)
-        app.on_wild()
-        log("ok: Wild speed widens fine-tuning to ±500 ct; Auto 440 and Wild speed turn each other off")
         app.fine_slider.set(0)
         app.on_fine(0)
-        # Auto 440 dead zone: within ±4 cents it is left as is, with an offer to use varispeed
+        # Auto 440 has no dead zone: +3 ct is simply corrected
         app.auto_var.set(True)
         app.on_auto()
         yield 0.1
         app._analysis_gen += 1
         app.analysing = True
+        app._style_fine()
+        assert app.fine_val.cget("text") == "…"
         app.events.put(("analysed", app._analysis_gen, (3.0, 439.24, 0.95)))  # A=439.24 -> +3.0 ct
         yield 0.4
-        assert app.in_dead_zone() and app.current_cents() == 0 and not app.player.varispeed
-        assert app.fine_info.cget("text").strip() == "Track is tuned to A = 439.2 Hz", app.fine_info.cget("text")
-        assert app.vari_btn.winfo_ismapped()
-        assert app.vari_note.winfo_ismapped() and "length" in app.vari_note.cget("text")
-        shot("4b-deadzone")
-        assert app.vari_btn.cget("text") == "Fine-tune anyway (+3.0 ct)", app.vari_btn.cget("text")
-        app.vari_btn.invoke()
-        yield 0.3
-        assert app.current_cents() == 3.0 and app.player.varispeed
-        assert app.fine_val.cget("text") == "+3.0 ct", app.fine_val.cget("text")
-        assert "Fine-tuned: A = 439.2 Hz" in app.fine_info.cget("text"), app.fine_info.cget("text")
-        assert app.vari_btn.cget("text") == "Don't fine-tune"
-        assert app.vari_note.winfo_ismapped()
-        shot("4c-deadzone-varispeed")
-        app.vari_btn.invoke()
+        assert app.auto and app.current_cents() == 3.0 and app.player.varispeed
+        assert app.fine_val.cget("text") == "+3 ct", app.fine_val.cget("text")
+        shot("4b-auto440")
+        # Auto 440 can't detect the tuning: a popup, and Auto 440 turns itself off
+        app._analysis_gen += 1
+        app.analysing = True
+        app.events.put(("analysed", app._analysis_gen, (0.0, None, 0.0)))
+        yield 0.6
+        assert not app.auto and not app.auto_var.get() and app.auto_result is None
+        w = app.alert_win
+        assert w is not None and w.winfo_exists() and w.title() == "Auto 440"
+        shot("4c-alert")
+        try:
+            from PIL import ImageGrab
+            w.update()
+            ImageGrab.grab(bbox=(w.winfo_rootx(), w.winfo_rooty(), w.winfo_rootx() + w.winfo_width(),
+                                 w.winfo_rooty() + w.winfo_height())).save(out / "4d-alert-box.png")
+        except Exception:
+            pass
+        w.destroy()
         yield 0.2
-        assert app.current_cents() == 0 and not app.player.varispeed
-        app.auto_var.set(False)
-        app.on_auto()
-        log("ok: Auto 440 dead zone (±4 ct): 'Track is tuned to A = 439.2 Hz' + 'Fine-tune anyway' button")
+        log("ok: Auto 440 corrects small offsets too (no dead zone); 'couldn't detect' popup turns it off")
 
         # loop area: drag on the timeline, loop button, export only the area, clear with ×
         rc = app.ruler
