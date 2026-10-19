@@ -36,6 +36,7 @@ if not os.environ.get("NISH_NO_DND"):
 from theme import *  # noqa: E402,F401,F403
 import project  # noqa: E402
 import settings  # noqa: E402
+import theme  # noqa: E402
 import updater  # noqa: E402
 
 
@@ -62,7 +63,7 @@ class Lane:
         head.grid_propagate(False)
         head.grid_columnconfigure(2, weight=1)
         self.stripe = ctk.CTkFrame(head, fg_color=ACCENT, width=3, corner_radius=0)
-        self.grip = ctk.CTkLabel(head, text="", image=icon("grip", "#5a616b", 14), width=18, cursor="fleur")
+        self.grip = ctk.CTkLabel(head, text="", image=icon("grip", GRIP, 14), width=18, cursor="fleur")
         self.grip.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(6, 0))
         self.grip.bind("<Button-1>", lambda e: self.app.drag_start(self, e))
         self.grip.bind("<B1-Motion>", lambda e: self.app.drag_move(self, e))
@@ -78,7 +79,7 @@ class Lane:
                                  text_color=TEXT, corner_radius=6)
         self.name.grid(row=0, column=2, sticky="ew", pady=(8, 0))
         self.name.bind("<FocusIn>", lambda e: (self.app.select(self),
-                                               self.name.configure(border_color=ACCENT, fg_color="#0f1114")))
+                                               self.name.configure(border_color=ACCENT, fg_color=FIELD)))
         self.name.bind("<FocusOut>", lambda e: self._commit_name())
         self.name.bind("<Return>", lambda e: self.app.root.focus_set())
         self.name.bind("<Escape>", lambda e: (self.name_var.set(self.track.label), self.app.root.focus_set()))
@@ -96,7 +97,7 @@ class Lane:
                                         font=font(12), command=lambda: self.app.remove_lane(self))
         self.remove_btn.grid(row=0, column=6, padx=(0, 10), pady=(8, 0))
 
-        self.file_lbl = ctk.CTkLabel(head, text=Path(track.path).name, text_color="#7d848e",
+        self.file_lbl = ctk.CTkLabel(head, text=Path(track.path).name, text_color=FILE_TXT,
                                      font=font(11, mono=True), anchor="w", height=20)
         self.file_lbl.grid(row=1, column=1, columnspan=6, sticky="ew", padx=(4, 12))
         volrow = self.volrow = ctk.CTkFrame(head, fg_color="transparent")
@@ -106,7 +107,7 @@ class Lane:
             row=0, column=0)
         self.vol = ctk.CTkSlider(volrow, from_=0, to=100, number_of_steps=100, height=16,
                                  command=self.on_volume, progress_color=self.color,
-                                 button_color=TEXT2, button_hover_color="#ffffff", fg_color=BORDER2)
+                                 button_color=KNOB, button_hover_color=KNOB_HOVER, fg_color=BORDER2)
         self.vol.set(100)
         App.ctrl_reset(self.vol, 100, self.on_volume)
         self.vol.grid(row=0, column=1, sticky="ew", padx=4)
@@ -132,7 +133,7 @@ class Lane:
 
     # --- controls ---
     def _commit_name(self):
-        bg = "#1a2030" if self.selected else LANE_BG
+        bg = SELECTED if self.selected else LANE_BG
         self.name.configure(border_color=bg, fg_color=bg)
         text = self.name_var.get().strip()
         if not text:
@@ -158,7 +159,7 @@ class Lane:
         if on == self.selected:
             return
         self.selected = on
-        bg = "#1a2030" if on else LANE_BG
+        bg = SELECTED if on else LANE_BG
         self.head.configure(fg_color=bg)
         if self.app.root.focus_get() is not self.name._entry:
             self.name.configure(fg_color=bg, border_color=bg)
@@ -166,7 +167,7 @@ class Lane:
             self.stripe.place(x=0, y=0, relheight=1)
         else:
             self.stripe.place_forget()
-        self.canvas.configure(bg="#171c26" if on else PANEL)
+        self.canvas.configure(bg=SELECTED_WAVE if on else PANEL)
         self.update_band()
 
     def refresh_buttons(self):
@@ -176,7 +177,7 @@ class Lane:
                 btn.configure(fg_color=cols[0], border_color=cols[1], text_color=cols[2],
                               hover_color=cols[0], border_width=1)
             else:
-                btn.configure(fg_color=BTN, border_color=BORDER2, text_color="#a8aeb7",
+                btn.configure(fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT,
                               hover_color=BTN_HOVER, border_width=1)
 
     def set_silent(self, silent):
@@ -211,7 +212,7 @@ class Lane:
             self.bars.append(c.create_rectangle(x0, mid - bh, x0 + self.BAR - 1, mid + bh, width=0,
                                                 fill=bright if i < self.played else dim))
         x = 8 + frac * n * self.BAR
-        self.playhead = c.create_line(x, 0, x, h, fill="#ffffff", width=2)
+        self.playhead = c.create_line(x, 0, x, h, fill=PLAYHEAD, width=2)
         self.update_band()
 
     def update_band(self):
@@ -225,8 +226,8 @@ class Lane:
             return
         span = len(self.bars) * self.BAR
         on = self.app.player.loop
-        bg = "#171c26" if self.selected else PANEL
-        self.canvas.itemconfigure(self.band, fill=blend("#2a3a60" if on else "#2a2f37", bg, 0.45))
+        bg = SELECTED_WAVE if self.selected else PANEL
+        self.canvas.itemconfigure(self.band, fill=blend(BAND_ON if on else BAND_OFF, bg, 0.45))
         self.canvas.coords(self.band, 8 + span * r[0] / n_src, 0, 8 + span * r[1] / n_src,
                            self.canvas.winfo_height())
 
@@ -267,12 +268,12 @@ class MasterFader:
         self.app = app
         self.pos = db_pos(0.0)
         self.levels = [0.0, 0.0]
-        self.card = ctk.CTkFrame(parent, fg_color="#1a1d22", border_color=BORDER2, border_width=1,
+        self.card = ctk.CTkFrame(parent, fg_color=POPOVER, border_color=BORDER2, border_width=1,
                                  corner_radius=10)
         # Title centred over the fader; level and the clip light underneath
         ctk.CTkLabel(self.card, text="Master", font=font(14, "bold"), text_color=TEXT, height=20).pack(
             pady=(12, 4))
-        self.canvas = tk.Canvas(self.card, width=self.W, height=self.H, bg="#1a1d22",
+        self.canvas = tk.Canvas(self.card, width=self.W, height=self.H, bg=POPOVER,
                                 highlightthickness=0, cursor="sb_v_double_arrow")
         self.canvas.pack(padx=8)
         self.db_lbl = ctk.CTkLabel(self.card, text="0.0 dB", font=font(13, mono=True),
@@ -305,16 +306,16 @@ class MasterFader:
             y = self.y_of(p)
             c.create_text(34, y, text=txt, anchor="e", fill=DIM, font=(MONO, 9))
             c.create_line(38, y, 44, y, fill=BORDER2)
-        c.create_rectangle(self.FX - 7, self.TOP, self.FX + 7, self.BOTTOM, fill="#0f1114",
+        c.create_rectangle(self.FX - 7, self.TOP, self.FX + 7, self.BOTTOM, fill=SLOT,
                            outline=BORDER2)
         self.fill = c.create_rectangle(self.FX - 6, self.TOP, self.FX + 6, self.BOTTOM, fill=ACCENT,
                                        width=0)
-        self.cap = c.create_rectangle(0, 0, 0, 0, fill="#e6e8eb", outline="#9aa0a8")
-        self.cap_line = c.create_line(0, 0, 0, 0, fill="#0f1114", width=2)
+        self.cap = c.create_rectangle(0, 0, 0, 0, fill=FADER_CAP, outline=FADER_CAP_EDGE)
+        self.cap_line = c.create_line(0, 0, 0, 0, fill=FADER_CAP_MARK, width=2)
         self.meters = []
         for i in range(2):
             x = self.MX + i * 10
-            c.create_rectangle(x, self.TOP, x + 6, self.BOTTOM, fill="#0f1114", width=0)
+            c.create_rectangle(x, self.TOP, x + 6, self.BOTTOM, fill=SLOT, width=0)
             segs = [c.create_rectangle(x, self.BOTTOM, x + 6, self.BOTTOM, fill=col, width=0)
                     for col in (GREEN, AMBER, RED)]
             self.meters.append(segs)
@@ -358,7 +359,7 @@ class MasterFader:
                                     hover_color=RED_BG, image=icon("dot", RED, 10))
         else:
             self.clip_btn.configure(text_color=DIM, border_color=BORDER2, fg_color="transparent",
-                                    hover_color=BTN_HOVER, image=icon("dot", "#4a2a2a", 10))
+                                    hover_color=BTN_HOVER, image=icon("dot", CLIP_OFF, 10))
 
     def reset_clip(self):
         self.app.player.clip = False
@@ -398,7 +399,6 @@ class App:
         self.dnd = TkinterDnD is not None
 
         root.title(APP_NAME)
-        root.configure(fg_color=BG)
         sh = root.winfo_screenheight()
         root.geometry(f"1280x{max(700, min(1000, sh - 90))}+40+20")
         root.minsize(980, 680)
@@ -411,14 +411,7 @@ class App:
         root.grid_columnconfigure(0, weight=1)
         root.grid_rowconfigure(1, weight=1)
 
-        self._build_header()
-        main = ctk.CTkFrame(root, fg_color=BG, corner_radius=0)
-        main.grid(row=1, column=0, sticky="nsew", padx=24, pady=(16, 18))
-        main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(1, weight=1)
-        self._build_dropzone(main)
-        self._build_tracks(main)
-        self._build_master(main)
+        self._build_ui()
 
         if not self.player.open_stream():
             self.status.configure(text="No audio output found – playback is off, export still works")
@@ -447,6 +440,77 @@ class App:
         root.after(40, self._tick)
 
     # ----- layout -----
+    def _build_ui(self):
+        self.root.configure(fg_color=BG)
+        self._build_header()
+        main = ctk.CTkFrame(self.root, fg_color=BG, corner_radius=0)
+        main.grid(row=1, column=0, sticky="nsew", padx=24, pady=(16, 18))
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(1, weight=1)
+        self._build_dropzone(main)
+        self._build_tracks(main)
+        self._build_master(main)
+
+    def apply_theme(self, mode):
+        """Switch light/dark: the window is rebuilt in the new colours; tracks, settings and
+        playback carry on untouched. Remembered for next time."""
+        mode = "light" if mode == "light" else "dark"
+        settings.put("theme", mode)
+        if mode == theme.MODE:
+            return
+        reopen = self.settings_pop is not None and self.settings_pop.frame.winfo_exists() \
+            and self.settings_pop.is_open()
+        upd = None
+        if self.settings_pop is not None:
+            upd = (self.settings_pop.state, self.settings_pop.release, self.settings_pop.stage)
+        if self.export_dialog is not None and self.export_dialog.win.winfo_exists():
+            self.export_dialog.close()
+        sel = self.lanes.index(self.selected) if self.selected in self.lanes else None
+        status = self.status.cget("text")
+        fader_pos = self.fader.pos
+        theme.set_mode(mode)
+        for w in list(self.root.winfo_children()):
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self.lanes, self.selected = [], None
+        self.yt_pop = self.recent_pop = self.settings_pop = self.alert_win = self.export_dialog = None
+        self._yt_status = self._shown_playing = self._ruler_len = None
+        self._build_ui()
+        for i, t in enumerate(self.player.tracks):
+            lane = Lane(self, self.lanes_box, t, TRACK_COLORS[i % len(TRACK_COLORS)])
+            lane.vol.set(round(t.volume * 100))
+            lane.on_volume(round(t.volume * 100))
+            self.lanes.append(lane)
+        self.speed_slider.set(self.speed)
+        self.on_speed(self.speed)
+        self.pitch_slider.set(self.semis)
+        self.on_pitch(self.semis)
+        self.auto_var.set(self.auto)
+        self.fine_slider.configure(state="normal")
+        self.fine_slider.set(self.current_cents())
+        self._style_fine()
+        self.fade_slider.set(self.player.loop_fade)
+        self.on_fade(self.player.loop_fade)
+        self._style_loop()
+        self.fader.set_pos(fader_pos)
+        self.fader.show_clip(self.player.clip)
+        self.status.configure(text=status)
+        self.refresh_all()
+        self.refresh_lanes()
+        self.refresh_region()
+        if sel is not None and sel < len(self.lanes):
+            self.select(self.lanes[sel])
+        self._update_busy()
+        self._update_title()
+        self._draw_drop()
+        if reopen:
+            self.open_settings()
+            if upd and upd[0] in ("latest", "newer", "ready", "error"):
+                self.settings_pop.state, self.settings_pop.release, self.settings_pop.stage = upd
+                self.settings_pop.refresh()
+
     def _build_header(self):
         bar = ctk.CTkFrame(self.root, fg_color=HEADER, corner_radius=0, height=64)
         bar.grid(row=0, column=0, sticky="ew")
@@ -497,8 +561,8 @@ class App:
         c.delete("all")
         w, h = c.winfo_width(), c.winfo_height()
         hot = self._drop_hot
-        c.create_rectangle(1, 1, w - 2, h - 2, outline=ACCENT if hot else "#3a414a", dash=(6, 4),
-                           width=2 if hot else 1.5, fill="#182033" if hot else PANEL)
+        c.create_rectangle(1, 1, w - 2, h - 2, outline=ACCENT if hot else CONTROL2, dash=(6, 4),
+                           width=2 if hot else 1.5, fill=DROP_HOT if hot else PANEL)
         if self.loading:
             msg = f"Loading {self.loading} file{'s' if self.loading > 1 else ''}…"
         elif hot:
@@ -507,7 +571,7 @@ class App:
             msg = "Drop audio files here to add tracks · WAV, FLAC, MP3, M4A, OGG — or click to browse"
         else:
             msg = "Click to add audio files · WAV, FLAC, MP3, M4A, OGG"
-        c.create_text(w / 2 + 12, h / 2, text=msg, fill=TEXT2 if hot else "#a8aeb7", font=(UI, 11))
+        c.create_text(w / 2 + 12, h / 2, text=msg, fill=TEXT2 if hot else BTN_TXT, font=(UI, 11))
         tx = w / 2 - c.tk.call("font", "measure", (UI, 11), msg) / 2 - 8
         c.create_line(tx, h / 2 + 7, tx, h / 2 - 7, fill=ACCENT, width=2, arrow="last", arrowshape=(6, 6, 3))
 
@@ -537,7 +601,7 @@ class App:
         ctk.CTkFrame(box, fg_color=BORDER, height=1, corner_radius=0).grid(row=0, column=0, sticky="sew")
         self.lanes_box = ctk.CTkScrollableFrame(box, fg_color=PANEL, corner_radius=0,
                                                 scrollbar_button_color=BORDER2,
-                                                scrollbar_button_hover_color="#3a414a")
+                                                scrollbar_button_hover_color=CONTROL2)
         self.lanes_box.grid(row=1, column=0, sticky="nsew", padx=2, pady=(0, 2))
         self.lanes_box.grid_columnconfigure(0, weight=1)
         self.empty = ctk.CTkLabel(self.lanes_box, font=font(14), text_color=MUTED, justify="center",
@@ -579,7 +643,7 @@ class App:
         ctk.CTkLabel(self.fade_inner, text="Fade", font=font(12), text_color=MUTED, width=34).pack(side="left")
         self.fade_slider = ctk.CTkSlider(self.fade_inner, from_=0, to=2, number_of_steps=20, width=84, height=16,
                                          command=self.on_fade, progress_color=ACCENT, button_color=TEXT2,
-                                         button_hover_color="#ffffff", fg_color=BORDER2)
+                                         button_hover_color=KNOB_HOVER, fg_color=BORDER2)
         self.fade_slider.set(engine.LOOP_FADE)
         self.fade_slider.pack(side="left", padx=4)
         self.fade_val = ctk.CTkLabel(self.fade_inner, text="1.0 s", font=font(12, mono=True),
@@ -609,13 +673,13 @@ class App:
         self.fine_val = ctk.CTkLabel(top, text="0 ct", font=font(13, "bold", True), anchor="w")
         self.fine_val.pack(side="left", padx=(10, 0))
 
-        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color="#3a3220",
+        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color=AMBER_BADGE,
                      corner_radius=4, height=18).pack(side="right")
         self.auto_var = tk.BooleanVar(value=False)
         self.auto_chk = ctk.CTkSwitch(top, text="Auto 440", variable=self.auto_var, command=self.on_auto,
                                       font=font(12), text_color=AMBER, switch_width=34, switch_height=18,
-                                      fg_color="#3a3f47", progress_color=GREEN, button_color="#e6e8eb",
-                                      button_hover_color="#ffffff", width=0)
+                                      fg_color=SWITCH_OFF, progress_color=GREEN, button_color=SWITCH_KNOB,
+                                      button_hover_color=SWITCH_KNOB, width=0)
         self.auto_chk.pack(side="right", padx=(0, 6))
         self.fine_slider = ctk.CTkSlider(fc, from_=-50, to=50, number_of_steps=100, height=18,
                                          command=self.on_fine)
@@ -639,7 +703,7 @@ class App:
         bottom.grid(row=1, column=0, columnspan=3, pady=(12, 0))
         ctk.CTkButton(bottom, text="Reset", height=32, corner_radius=6, font=font(13),
                       fg_color="transparent", hover_color=BTN_HOVER, border_color=BORDER2,
-                      border_width=1, text_color="#a8aeb7", command=self.reset_stretch).pack(side="left")
+                      border_width=1, text_color=BTN_TXT, command=self.reset_stretch).pack(side="left")
         self.busy_lbl = ctk.CTkLabel(bottom, text="", font=font(12), text_color=ACCENT_SOFT, compound="left")
         self.busy_lbl.pack(side="left", padx=14)
 
@@ -655,7 +719,7 @@ class App:
         val = ctk.CTkLabel(top, text="", font=font(13, "bold", True), text_color=ACCENT_SOFT)
         val.pack(side="right")
         sl = ctk.CTkSlider(card, from_=lo, to=hi, number_of_steps=steps, height=18, command=command,
-                           progress_color=ACCENT, button_color=TEXT2, button_hover_color="#ffffff",
+                           progress_color=ACCENT, button_color=KNOB, button_hover_color=KNOB_HOVER,
                            fg_color=BORDER2)
         sl.set(value)
         sl.pack(fill="x", padx=16)
@@ -691,9 +755,9 @@ class App:
             self.fade_inner.place(relx=0, rely=0.5, anchor="w")
         else:
             self.fade_inner.place_forget()
-        self.loop_btn.configure(fg_color="#1d2333" if on else BTN, border_color=ACCENT if on else BORDER2,
+        self.loop_btn.configure(fg_color=ACCENT_TINT if on else BTN, border_color=ACCENT if on else BORDER2,
                                 image=icon("loop", ACCENT_SOFT if on else TEXT2, 18),
-                                hover_color="#232b40" if on else BTN_HOVER)
+                                hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER)
 
     def _style_fine(self):
         auto = self.auto
@@ -701,8 +765,8 @@ class App:
                                  border_color=GREEN_BORDER if auto else BORDER)
         col = GREEN if auto else ACCENT
         self.fine_slider.configure(progress_color=col, button_color=col if auto else TEXT2,
-                                   button_hover_color=col if auto else "#ffffff",
-                                   fg_color="#23362e" if auto else BORDER2,
+                                   button_hover_color=col if auto else KNOB_HOVER,
+                                   fg_color=GREEN_TRACK if auto else BORDER2,
                                    state="disabled" if auto else "normal")
         text = "…" if (auto and self.analysing) else cents_text(self.current_cents())
         self.fine_val.configure(text=text, text_color=GREEN if auto else ACCENT_SOFT)
@@ -825,7 +889,7 @@ class App:
 
     def drag_end(self, lane, e):
         self._drag = None
-        lane.grip.configure(image=icon("grip", "#5a616b", 14))
+        lane.grip.configure(image=icon("grip", GRIP, 14))
 
     def move_lane(self, lane, index):
         self.lanes.remove(lane)
@@ -910,8 +974,8 @@ class App:
         if r:   # the loop area, behind the time marks
             on = self.player.loop
             x0, x1 = self._src_to_x(r[0]), self._src_to_x(r[1])
-            c.create_rectangle(x0, 2, x1, 29, width=0, fill="#26365a" if on else "#22272f")
-            edge = ACCENT if on else "#4a515b"
+            c.create_rectangle(x0, 2, x1, 29, width=0, fill=ACCENT_BAND if on else RANGE_IDLE)
+            edge = ACCENT if on else CONTROL
             c.create_line(x0, 2, x0, 29, fill=edge, width=2)
             c.create_line(x1, 2, x1, 29, fill=edge, width=2)
             if on:   # the fades, as slopes at both ends
@@ -1542,11 +1606,11 @@ class ExportDialog:
         for value, title, sub in (("mix", "Mix as you hear it", "One file. Mute, solo and volume are applied."),
                                   ("each", "Each track separately",
                                    "One file per track, same speed and pitch.")):
-            f = ctk.CTkFrame(body, fg_color="#1a1d22", border_color=BORDER2, border_width=1, corner_radius=10)
+            f = ctk.CTkFrame(body, fg_color=POPOVER, border_color=BORDER2, border_width=1, corner_radius=10)
             f.pack(fill="x", pady=4)
             rb = ctk.CTkRadioButton(f, text=title, value=value, variable=self.mode, font=font(13, "bold"),
                                     text_color=TEXT, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                                    border_color="#4a515b", command=self.refresh)
+                                    border_color=CONTROL, command=self.refresh)
             rb.pack(anchor="w", padx=14, pady=(8, 0))
             ctk.CTkLabel(f, text=sub, font=font(12), text_color=MUTED).pack(anchor="w", padx=44, pady=(0, 8))
             if len(lanes) == 1 and value == "each":
@@ -1554,7 +1618,7 @@ class ExportDialog:
 
         self._section(body, "FORMAT")
         self.fmt = ctk.CTkSegmentedButton(body, values=["WAV", "FLAC", "MP3 320"], height=40, font=font(13),
-                                          selected_color="#33405e", selected_hover_color="#3c4b6e",
+                                          selected_color=ACCENT_SEL, selected_hover_color=ACCENT_SEL_HOVER,
                                           unselected_color=BTN, unselected_hover_color=BTN_HOVER,
                                           text_color=TEXT, command=lambda v: self.refresh())
         self.fmt.set("WAV")
@@ -1583,14 +1647,14 @@ class ExportDialog:
         if not items:
             items.append(("No changes – a plain mix", False))
         for text, strong in items:
-            bg, fg = (("#3a3220", AMBER) if strong == "amber" else ("#222a40", "#b8c7ff") if strong
-                      else ("#2a2e34", "#a8aeb7"))
+            bg, fg = ((AMBER_BADGE, AMBER) if strong == "amber" else (CHIP_ACCENT, CHIP_ACCENT_TXT) if strong
+                      else (CHIP, BTN_TXT))
             ctk.CTkLabel(chips, text=f"  {text}  ", font=font(12, mono=True), corner_radius=12, height=26,
                          fg_color=bg, text_color=fg).pack(side="left", padx=(0, 6))
         if self.region:
             sp = app.player.speed
             span = f"{fmt_time(self.region[0] / engine.SR / sp)} – {fmt_time(self.region[1] / engine.SR / sp)}"
-            note = ctk.CTkFrame(body, fg_color="#1d2333", border_color="#34508a", border_width=1,
+            note = ctk.CTkFrame(body, fg_color=ACCENT_TINT, border_color=ACCENT_LINE, border_width=1,
                                 corner_radius=8)
             note.pack(fill="x", pady=(10, 0))
             f = app.player.loop_fade
@@ -1604,7 +1668,7 @@ class ExportDialog:
         self.name_var = tk.StringVar(value=engine.safe_filename(
             "_".join([engine.song_name([l.track.path for l in lanes]), "mix"] + self.tags)))
         self.name_entry = ctk.CTkEntry(body, textvariable=self.name_var, height=40, font=font(13, mono=True),
-                                       fg_color="#0f1114", border_color=BORDER2, text_color=TEXT)
+                                       fg_color=FIELD, border_color=BORDER2, text_color=TEXT)
         self.name_entry.pack(fill="x")
         self.name_hint = ctk.CTkLabel(body, text="", font=font(12), text_color=MUTED, anchor="w",
                                       wraplength=470, justify="left")
@@ -1766,6 +1830,7 @@ def run_gui(files=(), smoketest_dir=None):
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("nish.player")
         except Exception:
             pass
+    theme.set_mode(settings.get("theme", "dark"))     # dark unless the user picked light
     root = make_root()
     app = App(root)
     if files:

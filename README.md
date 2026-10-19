@@ -56,6 +56,8 @@ click **More info → Run anyway**.
 
 - **Export folder**: exports go to your Desktop until you pick another folder with **Change…**;
   that folder then becomes your default.
+- **Theme**: dark by default. The cogwheel menu has a **Theme** button that switches between dark
+  and light; the app remembers your choice.
 - **Updates** are always manual: the cogwheel in the top right shows your version and has
   **Check for updates** → **Download**. When the download is done it says so, and **Close and update**
   closes the app, swaps in the new version and starts it again; your settings (export folder, track names, YouTube settings) are kept

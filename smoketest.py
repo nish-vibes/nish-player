@@ -514,6 +514,41 @@ def run(app, out_dir):
         log("ok: cog menu: Check for updates -> Download -> ready -> Close and update / latest version; "
             "amber notice after 5 failed YouTube extractions today")
 
+        # theme: dark by default, switched in the cog menu, remembered; window rebuilt in place
+        import theme
+        assert theme.MODE == "dark" and settings.get("theme", "dark") == "dark"
+        n_lanes = len(app.lanes)
+        vols = [round(l.track.volume, 3) for l in app.lanes]
+        speed = app.speed
+        app.open_settings()
+        yield 0.3
+        assert app.settings_pop.theme_btn.cget("text") == "Dark"
+        app.settings_pop.theme_btn.invoke()
+        yield 0.8
+        assert theme.MODE == "light" and settings.get("theme") == "light"
+        assert app.root.cget("fg_color") in (theme.PALETTE["BG"][1], ("gray92", "gray14")) or \
+            theme.PALETTE["BG"][1] in str(app.root.cget("fg_color")), app.root.cget("fg_color")
+        assert len(app.lanes) == n_lanes and [round(l.track.volume, 3) for l in app.lanes] == vols
+        assert app.speed == speed and app.lanes[0].canvas.cget("bg") in (PANEL_L := theme.PALETTE["PANEL"][1],
+                                                                          theme.PALETTE["SELECTED_WAVE"][1])
+        assert app.settings_pop is not None and app.settings_pop.is_open()
+        assert app.settings_pop.theme_btn.cget("text") == "Light"
+        app.settings_pop.close()
+        yield 0.3
+        shot("8-light")
+        app.open_export()
+        yield 0.6
+        shot("8b-light-export")
+        app.export_dialog.close()
+        app.open_youtube()
+        yield 0.6
+        shot("8c-light-youtube")
+        app.yt_pop.close()
+        app.apply_theme("dark")
+        yield 0.6
+        assert theme.MODE == "dark" and settings.get("theme") == "dark" and len(app.lanes) == n_lanes
+        log("ok: theme switch in the cog menu: dark (default) -> light -> dark, remembered, tracks kept")
+
         # loop area: drag on the timeline, loop button, export only the area, clear with ×
         rc = app.ruler
         span = app._ruler_span()

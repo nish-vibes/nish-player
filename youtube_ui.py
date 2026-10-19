@@ -12,11 +12,8 @@ import customtkinter as ctk
 
 import splitter
 import theme
-from theme import (ACCENT, ACCENT_HOVER, ACCENT_SOFT, ACCENT_TXT, AMBER, AMBER_TXT, BORDER, BORDER2, BTN,
-                   BTN_HOVER, DIM, GREEN, GREEN_BG, GREEN_BORDER, GREEN_TXT, MUTED, SOFT, TEXT, TEXT2,
-                   ToolButton, font, icon)
+from theme import *  # noqa: F401,F403  (colours follow the light/dark theme)
 
-POP_BG, POP_BORDER, FIELD = "#1a1d22", "#343a42", "#0f1114"
 STEP_TEXT = {"download": "Download the original", "split": "Split with AI", "tune": "Tune to A = 440 Hz",
              "save": "Save the files", "load": "Add to workspace"}
 
@@ -93,7 +90,7 @@ class YouTubePopover:
         self.info = None
         self.info_gen = 0
         self._info_job = None
-        self.frame = ctk.CTkFrame(self.root, fg_color=POP_BG, border_color=POP_BORDER, border_width=1,
+        self.frame = ctk.CTkFrame(self.root, fg_color=POPOVER, border_color=BORDER_POP, border_width=1,
                                   corner_radius=14, width=self.W)
         head = ctk.CTkFrame(self.frame, fg_color="transparent")
         head.pack(fill="x", padx=20, pady=(14, 6))
@@ -169,10 +166,10 @@ class YouTubePopover:
         ToolButton(row, "Paste", self.paste, height=40, width=70).pack(side="left", padx=(8, 0))
         self.url_var.trace_add("write", lambda *a: self._url_changed())
 
-        card = ctk.CTkFrame(p, fg_color="#15181c", border_color=BORDER, border_width=1, corner_radius=10)
+        card = ctk.CTkFrame(p, fg_color=PANEL, border_color=BORDER, border_width=1, corner_radius=10)
         card.pack(fill="x", pady=(10, 0))
         ctk.CTkLabel(card, text="", image=icon("youtube", DIM, 30), width=56, height=44,
-                     fg_color="#2a2f36", corner_radius=6).pack(side="left", padx=10, pady=10)
+                     fg_color=THUMB, corner_radius=6).pack(side="left", padx=10, pady=10)
         txt = ctk.CTkFrame(card, fg_color="transparent")
         txt.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.info_title = ctk.CTkLabel(txt, text="", font=font(13, "bold"), text_color=TEXT, anchor="w",
@@ -195,7 +192,7 @@ class YouTubePopover:
         tiles.pack(fill="x")
         for i in range(3):
             tiles.grid_columnconfigure(i, weight=1, uniform="tile")
-        orig = ctk.CTkFrame(tiles, fg_color="transparent", border_color="#3a414a", border_width=1,
+        orig = ctk.CTkFrame(tiles, fg_color="transparent", border_color=CONTROL2, border_width=1,
                             corner_radius=8, height=56)
         orig.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         ctk.CTkLabel(orig, text=" Original", image=icon("check", GREEN, 12), compound="left",
@@ -228,8 +225,8 @@ class YouTubePopover:
         ctk.CTkCheckBox(top, text="Tune to A = 440 Hz", variable=self.tune_var, command=self.on_tune,
                         font=font(13, "bold"), text_color=TEXT, checkbox_width=18, checkbox_height=18,
                         corner_radius=4, border_width=2, fg_color=GREEN, hover_color=GREEN,
-                        border_color="#4a515b", checkmark_color=ACCENT_TXT).pack(side="left")
-        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color="#3a3220",
+                        border_color=CONTROL, checkmark_color=ACCENT_TXT).pack(side="left")
+        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color=AMBER_BADGE,
                      corner_radius=4, height=18).pack(side="left", padx=8)
         ctk.CTkLabel(self.tune_box, text="Karaoke and stems are saved in tune. The original stays untouched.",
                      font=font(12), text_color=MUTED, anchor="w", height=18, wraplength=330,
@@ -239,7 +236,7 @@ class YouTubePopover:
                                          variable=self.tuned_var, command=self.on_tune, font=font(12),
                                          text_color=TEXT2, checkbox_width=16, checkbox_height=16,
                                          corner_radius=4, border_width=2, fg_color=GREEN, hover_color=GREEN,
-                                         border_color="#4a515b", checkmark_color=ACCENT_TXT)
+                                         border_color=CONTROL, checkmark_color=ACCENT_TXT)
 
         prev = ctk.CTkFrame(p, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=10)
         prev.pack(fill="x", pady=(12, 0))
@@ -252,13 +249,13 @@ class YouTubePopover:
         self.loc_lbl.pack(side="left", fill="x", expand=True)
         ToolButton(loc, "Change…", self.change_folder, height=28, width=80).pack(side="right")
 
-        ctk.CTkFrame(p, fg_color="#262b31", height=1, corner_radius=0).pack(fill="x", pady=(14, 12))
+        ctk.CTkFrame(p, fg_color=SEPARATOR, height=1, corner_radius=0).pack(fill="x", pady=(14, 12))
         foot = ctk.CTkFrame(p, fg_color="transparent")
         foot.pack(fill="x", pady=(0, 4))
         self.ws_var = tk.BooleanVar(value=self.s["workspace"])
         ctk.CTkSwitch(foot, text="Add to workspace", variable=self.ws_var, font=font(13), text_color=TEXT2,
-                      progress_color=ACCENT, button_color="#ffffff", button_hover_color="#ffffff",
-                      fg_color="#3a414a", switch_width=36, switch_height=20,
+                      progress_color=ACCENT, button_color=SWITCH_KNOB, button_hover_color=SWITCH_KNOB,
+                      fg_color=SWITCH_OFF, switch_width=36, switch_height=20,
                       command=self.save).pack(side="left")
         self.go = ToolButton(foot, "Download", self.start, primary=True, height=40, width=110)
         self.go.pack(side="right")
@@ -269,15 +266,15 @@ class YouTubePopover:
             on = self.s[key]
             note = self.s['suffixes']['karaoke'] if key == "karaoke" else "own folder"
             b.configure(text=f" {title}\n {note}", image=icon("box_on" if on else "box_off",
-                                                              ACCENT if on else "#4a515b", 14),
-                        fg_color="#1d2333" if on else "#15181c", hover_color="#232b40" if on else BTN_HOVER,
+                                                              ACCENT if on else CONTROL, 14),
+                        fg_color=ACCENT_TINT if on else PANEL, hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER,
                         border_color=ACCENT if on else BORDER2, text_color=TEXT if on else SOFT)
         if self.s["karaoke"] and self.s["stems"]:
             self.kar_note.pack(fill="x", pady=(8, 0), after=self.kar_anchor)
         else:
             self.kar_note.pack_forget()
         tune = self.tune_var.get()
-        self.tune_box.configure(fg_color=GREEN_BG if tune else "#15181c",
+        self.tune_box.configure(fg_color=GREEN_BG if tune else PANEL,
                                 border_color=GREEN_BORDER if tune else BORDER2)
         if tune:
             self.tuned_chk.pack(anchor="w", padx=(40, 12), pady=(0, 10))
@@ -444,8 +441,8 @@ class YouTubePopover:
                      border_color=BORDER2, text_color=TEXT).pack(fill="x")
         self.section(p, "FORMAT FOR KARAOKE, STEMS & TUNED COPIES")
         self.fmt = ctk.CTkSegmentedButton(p, values=["FLAC", "WAV", "MP3 320", "Opus 256"], height=36,
-                                          font=font(13), selected_color="#33405e",
-                                          selected_hover_color="#3c4b6e", unselected_color=BTN,
+                                          font=font(13), selected_color=ACCENT_SEL,
+                                          selected_hover_color=ACCENT_SEL_HOVER, unselected_color=BTN,
                                           unselected_hover_color=BTN_HOVER, text_color=TEXT)
         self.fmt.pack(fill="x")
         ctk.CTkLabel(p, text="FLAC is lossless and about half the size of WAV – the best default.",
@@ -485,7 +482,7 @@ class YouTubePopover:
             f = ctk.CTkFrame(p, fg_color="transparent")
             row = ctk.CTkFrame(f, fg_color="transparent")
             row.pack(fill="x")
-            dot = ctk.CTkLabel(row, text="", width=22, image=icon("dot", "#3a414a", 12))
+            dot = ctk.CTkLabel(row, text="", width=22, image=icon("dot", CONTROL2, 12))
             dot.pack(side="left")
             lbl = ctk.CTkLabel(row, text=STEP_TEXT[k], font=font(13), anchor="w")
             lbl.pack(side="left", padx=(6, 0))
@@ -533,7 +530,7 @@ class YouTubePopover:
                 bar.set(prog)
                 bar.pack(fill="x", padx=(28, 0), pady=(4, 0))
             else:
-                dot.configure(image=icon("dot", "#3a414a", 12))
+                dot.configure(image=icon("dot", CONTROL2, 12))
                 lbl.configure(text_color=DIM, font=font(13))
                 meta.configure(text="")
                 bar.pack_forget()

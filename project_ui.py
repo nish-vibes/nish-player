@@ -7,7 +7,6 @@ import customtkinter as ctk
 import project
 from theme import *  # noqa: F401,F403
 
-POP_BG, POP_BORDER, ROW_HOVER = "#1a1d22", "#343a42", "#232830"
 
 
 def short_folder(path, n=40):
@@ -22,7 +21,7 @@ class RecentMenu:
 
     def __init__(self, app, anchor):
         self.app, self.root, self.anchor = app, app.root, anchor
-        f = self.frame = ctk.CTkFrame(self.root, fg_color=POP_BG, border_color=POP_BORDER, border_width=1,
+        f = self.frame = ctk.CTkFrame(self.root, fg_color=POPOVER, border_color=BORDER_POP, border_width=1,
                                       corner_radius=14, width=self.W)
         ctk.CTkFrame(f, fg_color="transparent", width=self.W, height=1).pack(side="bottom")  # fixed width
         ctk.CTkLabel(f, text="RECENT PROJECTS", font=font(11), text_color=MUTED, anchor="w").pack(
@@ -55,7 +54,7 @@ class RecentMenu:
         sub.pack(fill="x")
         for w in (row, ic, txt, name, sub):
             w.bind("<Button-1>", lambda e, p=path: self.pick(p))
-            w.bind("<Enter>", lambda e, r=row: r.configure(fg_color=ROW_HOVER))
+            w.bind("<Enter>", lambda e, r=row: r.configure(fg_color=BTN_HOVER))
             w.bind("<Leave>", lambda e, r=row: r.configure(fg_color="transparent"))
         self.rows.append((path, row))
 

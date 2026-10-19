@@ -11,10 +11,10 @@ import customtkinter as ctk
 
 import engine
 import settings
+import theme
 import updater
 from theme import *  # noqa: F401,F403
 
-POP_BG, POP_BORDER = "#1a1d22", "#343a42"   # same as the YouTube popover
 
 
 class SettingsMenu:
@@ -34,7 +34,7 @@ class SettingsMenu:
         if ready:
             self.stage, tag = ready
             self.state, self.release = "ready", {"tag": tag}
-        f = self.frame = ctk.CTkFrame(self.root, fg_color=POP_BG, border_color=POP_BORDER, border_width=1,
+        f = self.frame = ctk.CTkFrame(self.root, fg_color=POPOVER, border_color=BORDER_POP, border_width=1,
                                       corner_radius=14, width=self.W)
         ctk.CTkFrame(f, fg_color="transparent", width=self.W, height=1).pack(side="bottom")  # fixed width
         head = ctk.CTkFrame(f, fg_color="transparent")
@@ -44,6 +44,15 @@ class SettingsMenu:
                       hover_color=BTN_HOVER, command=self.close).pack(side="right")
         ctk.CTkLabel(f, text="Version " + updater.version_text(), font=font(12), text_color=MUTED,
                      anchor="w").pack(fill="x", padx=18)
+        # Theme: dark by default; the choice is remembered
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=(12, 0))
+        ctk.CTkLabel(row, text="Theme", font=font(13), text_color=TEXT, anchor="w").pack(side="left")
+        dark = theme.MODE == "dark"
+        self.theme_btn = ToolButton(row, "Dark" if dark else "Light", self.toggle_theme, height=30, width=92,
+                                    image=icon("moon" if dark else "sun", ACCENT_SOFT, 15), compound="left",
+                                    font=font(12))
+        self.theme_btn.pack(side="right")
         self.notice = ctk.CTkFrame(f, fg_color=AMBER_BG, border_color=AMBER_BORDER, border_width=1, corner_radius=8)
         self.notice_lbl = ctk.CTkLabel(self.notice, text="", font=font(12), text_color=AMBER_TXT, justify="left",
                                        anchor="w", wraplength=self.W - 60)
@@ -59,6 +68,9 @@ class SettingsMenu:
         f.bind("<Escape>", lambda e: self.close())
         self.refresh()
         self.place()
+
+    def toggle_theme(self):
+        self.app.apply_theme("light" if theme.MODE == "dark" else "dark")
 
     # ----- popover -----
     def place(self):
