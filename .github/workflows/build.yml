@@ -75,9 +75,16 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "$PWD\vendor;$env:PATH"
-          python tests/test_engine.py
-          python tests/test_splitter.py
-          python tests/test_updater.py
+          foreach ($t in "test_engine", "test_splitter", "test_updater") {
+            $out = python "tests/$t.py" 2>&1 | ForEach-Object { "$_" }
+            $code = $LASTEXITCODE
+            $out
+            if ($code -ne 0) {
+              $tail = ($out | Select-Object -Last 15) -join "%0A"
+              Write-Output "::error title=$t::$tail"
+              exit 1
+            }
+          }
 
       - name: Build exe
         run: pyinstaller NiSHPlayer.spec --noconfirm

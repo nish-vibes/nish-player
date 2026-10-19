@@ -77,13 +77,14 @@ def main():
         assert not stage.exists() and not (tmp / "NiSHPlayer.old").exists()
         ok("PowerShell helper waited for the app, swapped in the new version and removed the old one")
 
-        # rollback: a file kept open inside the new folder can't be moved -> old version stays
+        # rollback: the new version has vanished (e.g. removed by antivirus) -> the old one is put back
         stage = updater.unpack(z, app_dir)
         (app_dir / "NiSHPlayer.exe").write_text("current")
-        hold = open(stage / "_internal" / "new.txt")       # locks the staged folder
         script = updater.write_script(app_dir, stage, os.getpid() + 999999, restart=False)
+        import shutil
+        shutil.rmtree(stage)
         updater.run_script(script, wait=True)
-        hold.close()
+        print(log.read_text(encoding="utf-8") if log.exists() else "(no log)")
         assert (app_dir / "NiSHPlayer.exe").read_text() == "current", "old version must be restored"
         assert not (tmp / "NiSHPlayer.old").exists()
         ok("a failed swap puts the old version back")
