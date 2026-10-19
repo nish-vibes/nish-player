@@ -108,7 +108,7 @@ def run(app, out_dir):
         assert g == {"Lead vocals": 0.6, "Drums": 0.0, "Other": 1.0}, g
         log("ok: mute, solo and volume")
 
-        # selection, keyboard S / M / Ctrl+S, Ctrl+click on S, reorder with the grip
+        # selection, keyboard S / M, Ctrl+click on S, reorder with the grip
         assert app.selected is app.lanes[0] and app.lanes[0].selected
         Lane = type(app.lanes[0])
         other = app.lanes[2]
@@ -136,9 +136,9 @@ def run(app, out_dir):
         target.solo_btn._canvas.event_generate("<Control-Button-1>", x=6, y=6, state=0x0004)
         yield 0.2
         assert [l.track.solo for l in app.lanes] == [False, True, False], [l.track.solo for l in app.lanes]
-        app._selected_key(app.solo_only)   # Ctrl+S on the only soloed track turns it off
+        app._selected_key(app.solo_only)   # solo-only again on the only soloed track turns it off
         assert not any(l.track.solo for l in app.lanes)
-        log("ok: Ctrl+click on S / Ctrl+S solo only that track (again = off)")
+        log("ok: Ctrl+click on S solos only that track (again = off)")
         first = app.lanes[0]
 
         class E:
