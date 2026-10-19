@@ -582,7 +582,7 @@ class App:
         self.fine_card = fc
         top = ctk.CTkFrame(fc, fg_color="transparent")
         top.pack(fill="x", padx=16, pady=(12, 4))
-        ctk.CTkLabel(top, text="Fine-tuning", font=font(14, "bold"), text_color=TEXT).pack(side="left")
+        ctk.CTkLabel(top, text="Fine-tune", font=font(14, "bold"), text_color=TEXT).pack(side="left")
         self.fine_val = ctk.CTkLabel(top, text="0 ct", font=font(13, "bold", True), anchor="w")
         self.fine_val.pack(side="left", padx=(10, 0))
 

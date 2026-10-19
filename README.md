@@ -24,7 +24,7 @@ click **More info → Run anyway**.
   changing the other. You hear the change straight away while you drag; a moment after you
   let go, a high-quality version (Rubber Band) takes over seamlessly at the same spot.
 - **Ctrl+click** any slider (or the master fader) to put it back to its default.
-- **Fine-tuning** (±50 cents) and **Auto 440 (beta)**: Auto 440 measures how far the song is
+- **Fine-tune** (±50 cents) and **Auto 440 (beta)**: Auto 440 measures how far the song is
   from A = 440 Hz and sets the fine-tuning slider for you (it turns green and locks while Auto 440
   is on); if it can't detect the tuning it tells you and turns itself off. Fine-tuning works like a
   turntable (varispeed), so it slightly changes the length of the track. Speed and Pitch use Rubber Band.
