@@ -105,6 +105,17 @@ def plan(name, opts, orig_ext=".opus"):
     return out
 
 
+def project_rel(name, opts):
+    """Where the YouTube import saves its project (relative to the song folder), or None.
+    With stems: inside the stems folder. Karaoke only: next to the karaoke file."""
+    if opts["stems"]:
+        folder = sanitize(opts["stems_folder"].replace("{name}", name), limit=100)
+        return f"{folder}/{name}.nish"
+    if opts["karaoke"]:
+        return f"{name}.nish"
+    return None
+
+
 def workspace_keys(opts):
     """Which of the written files go into the player."""
     if opts["stems"]:
@@ -328,6 +339,15 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
         stage("save", 1.0)
         labels = {k: lbl for k, _, lbl in items}
         load = [(files[k], labels[k]) for k in workspace_keys(opts) if k in files]
-        return {"folder": folder, "files": files, "load": load, "tuning": tuning_text, "name": name}
+        proj = None
+        rel_p = project_rel(name, opts)
+        if rel_p and load:
+            import project
+            try:   # a project next to the stems, so the song can be opened again later
+                proj = project.save(folder / rel_p, project.new_state(load))
+            except Exception:
+                proj = None
+        return {"folder": folder, "files": files, "load": load, "tuning": tuning_text, "name": name,
+                "project": proj}
     finally:
         shutil.rmtree(work, ignore_errors=True)

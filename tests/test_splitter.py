@@ -81,9 +81,18 @@ def main():
     orig = engine.decode(folder / "My Song.m4a")
     off, _ = tuning.estimate_offset_cents(orig.mean(1), SR)
     assert abs(off + 12.6) < 3, off  # original untouched
-    peaks = [float(np.abs(engine.decode(p)).max()) for p in (folder / "My Song stems").iterdir()]
+    peaks = [float(np.abs(engine.decode(p)).max()) for p in (folder / "My Song stems").iterdir()
+             if p.suffix != ".nish"]
     assert max(peaks) <= 0.97, peaks
     assert [lbl for _, lbl in res["load"]] == ["Vocals", "Drums", "Bass", "Guitar", "Piano", "Other"]
+    # karaoke is saved but not loaded with the stems; a project sits next to the stems
+    assert res["project"] == folder / "My Song stems" / "My Song.nish" and res["project"].exists()
+    import project
+    st, missing = project.load(res["project"])
+    assert not missing and [t["name"] for t in st["tracks"]] == ["Vocals", "Drums", "Bass", "Guitar", "Piano",
+                                                                 "Other"]
+    assert all("/" not in json_t["file"] for json_t in __import__("json").loads(
+        res["project"].read_text(encoding="utf-8"))["tracks"])          # relative: just the file names
     ok(f"full job: {len(list(folder.rglob('*.*')))} files, {res['tuning']}")
 
     # karaoke only, no tuning, Opus; original only
@@ -91,13 +100,14 @@ def main():
     o3.update(stems=False, karaoke=True, tune=False, fmt="OPUS", out_root=str(tmp / "out3"))
     res = splitter.run(str(src), "", o3, separator=sep)
     f = tmp / "out3" / "Some Video Title"
-    assert sorted(p.name for p in f.iterdir()) == ["Some Video Title.m4a", "Some Video Title_NoVox.opus"]
-    assert res["load"][0][1] == "Karaoke"
+    assert sorted(p.name for p in f.iterdir()) == ["Some Video Title.m4a", "Some Video Title.nish",
+                                                   "Some Video Title_NoVox.opus"]
+    assert res["load"][0][1] == "Karaoke" and res["project"] == f / "Some Video Title.nish"
     o4 = splitter.default_settings()
     o4.update(stems=False, karaoke=False, tune=False, out_root=str(tmp / "out4"))
     res = splitter.run(str(src), "Plain", o4, separator=None)
     assert [p.name for p in (tmp / "out4" / "Plain").iterdir()] == ["Plain.m4a"]
-    assert res["load"][0][1] == "Plain"
+    assert res["load"][0][1] == "Plain" and res["project"] is None
     ok("karaoke-only as Opus, and original-only (no split)")
 
     # cancel

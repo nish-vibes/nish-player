@@ -213,6 +213,11 @@ class YouTubePopover:
                                  corner_radius=8, fg_color=BTN, hover_color=BTN_HOVER, border_width=1,
                                  border_color=BORDER2, command=lambda: self.show("suffixes"))
         self.cog.grid(row=0, column=3, sticky="ns")
+        # karaoke + stems: the karaoke file is saved but only the stems go into the workspace
+        self.kar_note = ctk.CTkLabel(p, text="The karaoke version is saved in the song folder but not added "
+                                             "to the workspace with the stems.", font=font(12),
+                                     text_color=ACCENT_SOFT, anchor="w", justify="left", wraplength=400)
+        self.kar_anchor = tiles
 
         self.tune_box = ctk.CTkFrame(p, corner_radius=10, border_width=1)
         self.tune_box.pack(fill="x", pady=(10, 0))
@@ -266,6 +271,10 @@ class YouTubePopover:
                                                               ACCENT if on else "#4a515b", 14),
                         fg_color="#1d2333" if on else "#15181c", hover_color="#232b40" if on else BTN_HOVER,
                         border_color=ACCENT if on else BORDER2, text_color=TEXT if on else SOFT)
+        if self.s["karaoke"] and self.s["stems"]:
+            self.kar_note.pack(fill="x", pady=(8, 0), after=self.kar_anchor)
+        else:
+            self.kar_note.pack_forget()
         tune = self.tune_var.get()
         self.tune_box.configure(fg_color=GREEN_BG if tune else "#15181c",
                                 border_color=GREEN_BORDER if tune else BORDER2)
@@ -296,6 +305,10 @@ class YouTubePopover:
         ext = (self.info or {}).get("ext") or ".opus"
         items = splitter.plan(name, self.opts(), ext)
         notes = {"original": "original", "tuned": "tuned copy", "karaoke": "karaoke"}
+        prel = splitter.project_rel(name, self.opts())
+        if prel:
+            items = items + [("project", prel, "")]
+            notes["project"] = "project"
         lines = [f"{name}\\"]
         width = max((len(r) for _, r, _ in items if "/" not in r), default=0) + 3
         folder_shown = False
@@ -305,7 +318,7 @@ class YouTubePopover:
                 if not folder_shown:
                     lines.append(f"   {sub}\\")
                     folder_shown = True
-                lines.append(f"      {fn}")
+                lines.append(f"      {fn}" + ("   project" if key == "project" else ""))
             else:
                 note = notes.get(key, "")
                 lines.append(f"   {rel.ljust(width)}{note}".rstrip())

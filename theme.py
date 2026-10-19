@@ -130,6 +130,13 @@ def icon(name, color, size=16):
                     (cx + math.cos(a) * S * .44, cy + math.sin(a) * S * .44)], fill=color, width=int(w * 1.6))
         d.ellipse([S * .2, S * .2, S * .8, S * .8], fill=color)
         d.ellipse([S * .38, S * .38, S * .62, S * .62], fill=(0, 0, 0, 0))
+    elif name == "chevron":  # small ▾
+        d.line([(S * .22, S * .38), (S * .5, S * .66), (S * .78, S * .38)], fill=color, width=w + 2,
+               joint="curve")
+    elif name == "project":  # a page with a little waveform
+        d.rounded_rectangle([S * .18, S * .08, S * .82, S * .92], radius=S * .1, outline=color, width=w)
+        for x, h in ((.34, .12), (.44, .24), (.54, .16), (.64, .08)):
+            d.line([(S * x, S * (.5 - h)), (S * x, S * (.5 + h))], fill=color, width=max(3, w - 2))
     elif name == "box_on":
         d.rounded_rectangle([S * .08, S * .08, S * .92, S * .92], radius=S * .2, fill=color)
         d.line([(S * .26, S * .52), (S * .43, S * .7), (S * .75, S * .32)], fill="#0f1114", width=w + 2,

@@ -41,7 +41,18 @@ click **More info → Run anyway**.
   A = 440 Hz (beta, varispeed)** – plus an extra tuned copy of the original (`_440hz`) if you like. Name the
   file yourself or leave it blank to use the video title. The cogwheel sets the suffixes, the stems
   folder name and the format (FLAC by default; WAV, MP3 320 or Opus 256). **Add to workspace**
-  loads the result straight into the player. The first split downloads the AI model once.
+  loads the result straight into the player: the stems when you made stems (the karaoke version is
+  saved but not loaded with them), otherwise the karaoke version. A **project** (`<name>.nish`) is
+  saved next to the stems (or next to the karaoke file), so the song is easy to find and open again.
+  The first split downloads the AI model once.
+
+- **Projects**: **Save…** (Ctrl+S; Ctrl+Shift+S saves a copy under a new name) writes a small
+  `.nish` file with the tracks, their names, order, volume, mute and solo, speed, pitch, fine-tune,
+  Auto 440, the loop area and the master fader. The audio isn't copied: the project points to the
+  files next to it, so a song folder with its project can be moved or copied and still opens.
+  **Open…** opens audio files or a project, and the **▾** next to it lists your recent projects.
+  Double-clicking a `.nish` file opens it in NiSH Player (in the running one, if it's open). If a
+  saved project has changes, NiSH Player asks before closing it.
 
 - **Export folder**: exports go to your Desktop until you pick another folder with **Change…**;
   that folder then becomes your default.
@@ -51,7 +62,8 @@ click **More info → Run anyway**.
   in `%LOCALAPPDATA%\NiSH Player` and are never touched. If YouTube downloads fail five times on
   one day, the cogwheel turns amber and suggests checking for an update.
 
-Keyboard: **Space** play/pause, **Home** back to the start.
+Keyboard: **Space** play/pause, **Home** back to the start, **Ctrl+S** save the project,
+**S** / **M** solo / mute the selected track (**Ctrl+click** on S: solo only that track).
 
 ## Building it yourself
 

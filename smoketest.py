@@ -4,6 +4,7 @@ Makes a small test song, loads it, clicks through every control, exports, and wr
 gui_smoketest.txt (plus screenshots) to <folder>. Exit code 0 = passed.
 """
 import os
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -37,9 +38,11 @@ def make_song(folder, seconds=8.0, a_hz=436.8):
 def run(app, out_dir):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    import project
     import settings
     import updater
     settings.FILE = out / "settings.json"     # don't touch the real user settings
+    app.ask_save_changes = lambda: False       # never block on a real "Save changes?" box
     report = out / "gui_smoketest.txt"
     lines = []
 
@@ -374,6 +377,74 @@ def run(app, out_dir):
         yield 0.2
         log("ok: Auto 440 corrects small offsets too (no dead zone); 'couldn't detect' popup turns it off")
 
+        # projects: save, change something, reopen -> everything comes back
+        from tkinter import filedialog as fd
+        real_ask = fd.asksaveasfilename
+        fd.asksaveasfilename = lambda **kw: str(out / "Test Project.nish")
+        lane0 = app.lanes[0]
+        lane0.vol.set(55)
+        lane0.on_volume(55)
+        for i, l in enumerate(app.lanes):
+            l.track.mute, l.track.solo = (i == 1), False
+        app.refresh_lanes()
+        app.speed_slider.set(0.9)
+        app.on_speed(0.9)
+        app.player.set_region(engine.SR * 1, engine.SR * 3)
+        app.refresh_region()
+        n_tracks = len(app.lanes)
+        names = [l.track.label for l in app.lanes]
+        assert app.save_project()
+        fd.asksaveasfilename = real_ask
+        pth = out / "Test Project.nish"
+        assert pth.exists() and app.project_path == str(pth) and not app.is_dirty()
+        app._update_title()
+        assert app.root.title().startswith("Test Project – "), app.root.title()
+        app.speed_slider.set(1.0)
+        app.on_speed(1.0)
+        app._update_title()
+        assert app.is_dirty() and "•" in app.root.title()
+        asked = []
+        app.ask_save_changes = lambda: (asked.append(1), False)[1]      # "Don't save"
+        app.open_project(pth)
+        for _ in range(100):
+            if app.project_path and len(app.lanes) == n_tracks and not app.loading:
+                break
+            yield 0.1
+        assert asked == [1]
+        assert [l.track.label for l in app.lanes] == names
+        assert abs(app.lanes[0].track.volume - 0.55) < 1e-6, [(l.track.label, l.track.volume, l.track.mute)
+                                                              for l in app.lanes]
+        assert app.lanes[1].track.mute, [(l.track.label, l.track.volume, l.track.mute) for l in app.lanes]
+        assert app.speed == 0.9 and app.player.region == (engine.SR * 1.0, engine.SR * 3.0), app.player.region
+        assert not app.is_dirty()
+        app.open_recent()
+        yield 0.3
+        rp = app.recent_pop
+        assert rp.is_open() and rp.rows and Path(rp.rows[0][0]) == pth.resolve()
+        shot("7-recent")
+        rp.close()
+        app.ask_save_changes = lambda: False
+        app.lanes[1].toggle_mute()
+        assert app.is_dirty()
+        app.speed_slider.set(1.0)
+        app.on_speed(1.0)
+        app.player.set_region(None, None)
+        app.refresh_region()
+        app._set_project(None)
+        log("ok: project saved, '•' when changed, 'save changes?' asked, reopened with names, volume, "
+            "mute, speed and loop area; listed under Open ▾")
+
+        # .nish files open with this app (Windows build only: written for the current user, no admin)
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            import instance
+            import winreg
+            instance.register_file_type()
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Classes\NiSHPlayer.Project\shell\open\command") as k:
+                cmd = winreg.QueryValueEx(k, "")[0]
+            assert str(Path(sys.executable).resolve()) in cmd and '"%1"' in cmd, cmd
+            log(f"ok: .nish registered for double-click: {cmd}")
+
         # export folder: the Desktop by default; "Change…" makes the new folder the default
         assert settings.export_folder() == settings.desktop()
         app.open_export()
@@ -505,6 +576,7 @@ def run(app, out_dir):
         log("ok: × clears the loop area; Fade slider hides when loop is off")
 
         # remove and clear
+        drums = next(l for l in app.lanes if l.track.label == "Drums")   # lanes were rebuilt by the project reopen
         app.remove_lane(drums)
         yield 0.2
         assert len(app.lanes) == 2 and len(app.player.tracks) == 2
@@ -545,6 +617,8 @@ def run(app, out_dir):
         pop.suffixes_done()
         yield 0.3
         txt = pop.preview.cget("text")
+        assert pop.kar_note.winfo_ismapped(), "karaoke + stems notice missing"
+        assert "Smoke Song.nish" in pop.preview.cget("text")
         for want in ("Smoke Song.wav", "Smoke Song_440hz.flac", "Smoke Song_NoVox_440hz.flac",
                      "Smoke Song stems", "Smoke Song_VOX_440hz.flac"):
             assert want in txt, (want, txt)
@@ -581,13 +655,19 @@ def run(app, out_dir):
         folder = out / "yt" / "Smoke Song"
         made = sorted(str(p.relative_to(folder)).replace("\\", "/") for p in folder.rglob("*.*"))
         log(f"ok: split took {time.time() - t0:.0f}s, wrote {made}; {job.result['tuning']}")
-        assert len(made) == 9, made
+        assert len(made) == 10 and "Smoke Song stems/Smoke Song.nish" in made, made
         t0 = time.time()
         while len(app.lanes) < 6:
             assert time.time() - t0 < 60, "stems were not added to the workspace"
             yield 0.2
         labels = [l.track.label for l in app.lanes]
-        assert labels == ["Vocals", "Drums", "Bass", "Guitar", "Piano", "Other"], labels
+        assert labels == ["Vocals", "Drums", "Bass", "Guitar", "Piano", "Other"], labels   # no karaoke
+        for _ in range(30):
+            if app.project_path:
+                break
+            yield 0.1
+        assert app.project_path and Path(app.project_path).name == "Smoke Song.nish", app.project_path
+        assert not app.is_dirty() and project.recent()[0] == str(Path(app.project_path).resolve())
         yield 0.5
         shot("4-youtube-done")
         log("ok: stems added to the workspace in order")

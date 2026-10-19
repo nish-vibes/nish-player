@@ -1,4 +1,4 @@
-"""Updater and settings tests. The folder swap itself runs only on Windows (PowerShell).
+"""Updater, settings and single-instance tests. The folder swap itself runs only on Windows (PowerShell).
 
 Run:  python tests/test_updater.py
 """
@@ -92,6 +92,22 @@ def main():
         text = script.read_text(encoding="utf-8-sig")
         assert "Wait-Process -Id 1234" in text and "NiSHPlayer.old" in text
         ok("helper script written (swap is tested on Windows)")
+
+    # one app at a time: a second start hands its files to the running one
+    import instance
+    instance.PORT_FILE = tmp / "instance.port"
+    assert not instance.hand_off(["x.nish"]), "nobody is listening yet"
+    got = []
+    srv = instance.serve(got.append)
+    assert srv is not None and instance.PORT_FILE.exists()
+    assert instance.hand_off([str(tmp / "My Song.nish")])
+    assert got and Path(got[0][0]).name == "My Song.nish", got
+    assert instance.hand_off([])                    # plain start: just bring the window forward
+    instance.stop(srv)
+    assert not instance.PORT_FILE.exists() and not instance.hand_off(["x.nish"])
+    ok("second start hands its files to the running app")
+    if os.name == "nt":
+        ok(f"file type registration runs only in the built app: {instance.register_file_type()}")
 
     print("UPDATER TESTS PASSED")
 

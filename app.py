@@ -34,6 +34,7 @@ if not os.environ.get("NISH_NO_DND"):
         TkinterDnD = None
 
 from theme import *  # noqa: E402,F401,F403
+import project  # noqa: E402
 import settings  # noqa: E402
 import updater  # noqa: E402
 
@@ -390,6 +391,10 @@ class App:
         self._drag = None
         self._yt_status = None
         self.last_dir = str(Path.home() / "Music")
+        self.project_path = None     # the open project (.nish), if any
+        self._saved_sig = None       # project state when last saved/opened
+        self._restore = None         # settings waiting for tracks that are still loading
+        self.recent_pop = None
         self.dnd = TkinterDnD is not None
 
         root.title(APP_NAME)
@@ -432,10 +437,11 @@ class App:
         root.bind_all("<space>", self._on_space)
         for k in ("s", "S"):
             root.bind_all(f"<KeyPress-{k}>", lambda e: self._selected_key(Lane.toggle_solo))
-            root.bind_all(f"<Control-{k}>", lambda e: self._selected_key(self.solo_only))
         for k in ("m", "M"):
             root.bind_all(f"<KeyPress-{k}>", lambda e: self._selected_key(Lane.toggle_mute))
         root.bind_all("<Home>", lambda e: None if self._typing() else self.seek(0))
+        root.bind_all("<Control-s>", lambda e: (self.save_project(), "break")[1])
+        root.bind_all("<Control-S>", lambda e: (self.save_project(save_as=True), "break")[1])
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh_all()
         root.after(40, self._tick)
@@ -458,7 +464,14 @@ class App:
         self.status.grid(row=0, column=1, sticky="e", padx=12)
         right = ctk.CTkFrame(bar, fg_color="transparent")
         right.grid(row=0, column=2, padx=24, pady=14, sticky="e")
-        ToolButton(right, "Open…", self.open_dialog).pack(side="left", padx=4)
+        openbox = ctk.CTkFrame(right, fg_color="transparent")
+        openbox.pack(side="left", padx=4)
+        self.open_btn = ToolButton(openbox, "Open…", self.open_dialog, width=76, corner_radius=8)
+        self.open_btn.pack(side="left")
+        self.recent_btn = ToolButton(openbox, "", self.open_recent, width=28, image=icon("chevron", TEXT2, 12))
+        self.recent_btn.pack(side="left", padx=(2, 0))
+        self.save_btn = ToolButton(right, "Save…", lambda: self.save_project(), width=76)
+        self.save_btn.pack(side="left", padx=4)
         self.yt_btn = ToolButton(right, "From YouTube…", self.open_youtube, image=icon("youtube", ACCENT_SOFT, 18),
                                  compound="left", width=168)
         self.yt_btn.pack(side="left", padx=4)
@@ -696,20 +709,31 @@ class App:
 
     # ----- files -----
     def open_dialog(self):
+        exts = " ".join("*" + e for e in sorted(engine.AUDIO_EXTS))
         paths = filedialog.askopenfilenames(
-            parent=self.root, title="Add audio files", initialdir=self.last_dir,
-            filetypes=[("Audio files", " ".join("*" + e for e in sorted(engine.AUDIO_EXTS))),
-                       ("All files", "*.*")])
+            parent=self.root, title="Open audio files or a project", initialdir=self.last_dir,
+            filetypes=[("Audio files and projects", exts + " *" + project.EXT), ("Audio files", exts),
+                       ("NiSH Player projects", "*" + project.EXT), ("All files", "*.*")])
         if paths:
-            self.add_files(paths)
+            self.open_paths(paths)
+
+    def open_paths(self, paths):
+        """Audio files are added; a project file replaces the workspace."""
+        projects = [p for p in paths if str(p).lower().endswith(project.EXT)]
+        if projects:
+            self.open_project(projects[0])
+        audio = [p for p in paths if not str(p).lower().endswith(project.EXT)]
+        if audio:
+            self.add_files(audio)
 
     def _on_drop(self, event):
         self._drop_highlight(False)
-        self.add_files(self.root.tk.splitlist(event.data))
+        self.open_paths(self.root.tk.splitlist(event.data))
         return event.action
 
-    def add_files(self, paths, names=None):
-        """names: optional {path: track name} for files that have no saved name yet."""
+    def add_files(self, paths, names=None, prefer_names=False):
+        """names: optional {path: track name} for files that have no saved name yet
+        (prefer_names: these names win, as when opening a project)."""
         files = []
         for p in paths:
             p = Path(p)
@@ -734,7 +758,8 @@ class App:
                 key = str(f.resolve())
                 try:
                     audio = engine.decode(f)
-                    self.events.put(("loaded", f, audio, labels.get(key) or names.get(key)))
+                    name = (names.get(key) or labels.get(key)) if prefer_names else (labels.get(key) or names.get(key))
+                    self.events.put(("loaded", f, audio, name))
                 except Exception as e:
                     self.events.put(("load_error", f, str(e)))
 
@@ -747,8 +772,14 @@ class App:
         self.player.add(track)
         if self.selected is None:
             self.select(lane)
+        t = (self._restore or {}).get("tracks", {}).get(str(Path(path).resolve()))
+        if t:
+            lane.vol.set(round(t.get("volume", 1.0) * 100))
+            lane.on_volume(round(t.get("volume", 1.0) * 100))
+            track.mute, track.solo = bool(t.get("mute")), bool(t.get("solo"))
+            self.refresh_lanes()
         self.refresh_all()
-        if self.auto:
+        if self.auto and not (self._restore and self.auto_result):
             self.start_analysis()
         self._update_busy()
 
@@ -763,7 +794,7 @@ class App:
             lane.set_selected(True)
 
     def solo_only(self, lane):
-        """Solo just this track (Ctrl+click on S, or Ctrl+S). Again on the only solo turns it off."""
+        """Solo just this track (Ctrl+click on S). Again on the only solo turns it off."""
         self.select(lane)
         only = lane.track.solo and not any(l.track.solo for l in self.lanes if l is not lane)
         for l in self.lanes:
@@ -1135,6 +1166,9 @@ class App:
             self._update_positions()
             self.fader.set_levels(self.player.take_meter())
             self.fader.show_clip(self.player.clip)
+            self._title_n = getattr(self, "_title_n", 0) + 1
+            if self._title_n % 15 == 0 and self.project_path:
+                self._update_title()
             playing = self.player.playing
             if playing != getattr(self, "_shown_playing", None):
                 self._shown_playing = playing
@@ -1164,10 +1198,14 @@ class App:
                 self.loading -= 1
                 self._draw_drop()
                 self._add_track(ev[1], ev[2], ev[3])
+                if self.loading == 0:
+                    self._finish_restore()
             elif kind == "load_error":
                 self.loading -= 1
                 self._draw_drop()
                 self.flash(f"Couldn't open {Path(ev[1]).name}")
+                if self.loading == 0:
+                    self._finish_restore()
                 print("load error", ev[1], ev[2])
             elif kind == "render":
                 self._update_busy()
@@ -1199,6 +1237,10 @@ class App:
             elif kind == "yt_stage" and ev[1] is self.yt_job:
                 ev[1].progress[ev[2]] = ev[3]
                 self._yt_refresh()
+            elif kind == "open_paths":          # NiSH Player was started again (e.g. a .nish double-click)
+                self.bring_to_front()
+                if ev[1]:
+                    self.open_paths(ev[1])
             elif kind == "settings_refresh":
                 if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
                     self.settings_pop.refresh()
@@ -1231,6 +1273,10 @@ class App:
             self.note_yt_failure()          # YouTube extraction failed (not the split)
         if result and job.opts["workspace"]:
             job.progress["load"] = 1.0
+            if result.get("project") and not self.lanes and not self.loading:
+                # an empty workspace becomes the new project (so Ctrl+S saves into it)
+                self.project_path = None
+                self._restore = {"tracks": {}, "loop": {}, "path": str(result["project"])}
             self.add_files([p for p, _ in result["load"]], names={str(p): lbl for p, lbl in result["load"]})
         if result:
             self._yt_done_until = self.root.winfo_toplevel().tk.call("clock", "milliseconds") + 5000
@@ -1276,8 +1322,156 @@ class App:
         self.export_dialog = ExportDialog(self)
 
     def close(self):
+        if not self.confirm_discard():
+            return
         self.player.close()
         self.root.destroy()
+
+    def bring_to_front(self):
+        r = self.root
+        try:
+            r.deiconify()
+            r.lift()
+            r.attributes("-topmost", True)
+            r.after(300, lambda: r.attributes("-topmost", False))
+            r.focus_force()
+        except Exception:
+            pass
+
+    # ----- projects -----
+    def project_state(self):
+        r = self.player.region
+        return {
+            "tracks": [{"file": str(l.track.path), "name": l.track.label, "volume": round(l.track.volume, 3),
+                        "mute": l.track.mute, "solo": l.track.solo} for l in self.lanes],
+            "speed": self.speed, "pitch": self.semis, "fine": self.manual_cents,
+            "auto440": self.auto, "auto440_result": list(self.auto_result) if self.auto_result else None,
+            "loop": {"on": self.player.loop, "start": r and round(r[0] / engine.SR, 3),
+                     "end": r and round(r[1] / engine.SR, 3), "fade": self.player.loop_fade},
+            "master": round(self.fader.pos, 4),
+        }
+
+    def is_dirty(self):
+        return bool(self.project_path) and project.signature(self.project_state()) != self._saved_sig
+
+    def ask_save_changes(self):
+        """True = save, False = don't save, None = cancel."""
+        return messagebox.askyesnocancel(APP_NAME, f"Save changes to {Path(self.project_path).stem}?",
+                                         parent=self.root)
+
+    def confirm_discard(self):
+        """Before closing or replacing the workspace. False = the user cancelled."""
+        if not self.is_dirty():
+            return True
+        ans = self.ask_save_changes()
+        if ans is None:
+            return False
+        if ans:
+            return self.save_project()
+        return True
+
+    def save_project(self, save_as=False):
+        if not self.lanes:
+            self.flash("Add some audio first.")
+            return False
+        path = self.project_path
+        if save_as or not path:
+            first = Path(self.lanes[0].track.path)
+            path = filedialog.asksaveasfilename(
+                parent=self.root, title="Save project", defaultextension=project.EXT,
+                initialdir=str(Path(path).parent if path else first.parent),
+                initialfile=engine.safe_filename(engine.song_name([l.track.path for l in self.lanes])) + project.EXT,
+                filetypes=[("NiSH Player project", "*" + project.EXT)])
+            if not path:
+                return False
+        try:
+            path = project.save(path, self.project_state())
+        except Exception as e:
+            traceback.print_exc()
+            self.show_alert("Save project", f"The project couldn't be saved:\n{e}")
+            return False
+        self._set_project(path)
+        self.flash(f"Saved {path.name}")
+        return True
+
+    def _set_project(self, path, sig=None):
+        self.project_path = str(path) if path else None
+        self._saved_sig = sig or project.signature(self.project_state())
+        self._update_title()
+
+    def _update_title(self):
+        if self.project_path:
+            dot = " •" if self.is_dirty() else ""
+            self.root.title(f"{Path(self.project_path).stem}{dot} – {APP_NAME}")
+        else:
+            self.root.title(APP_NAME)
+
+    def open_project(self, path):
+        if not self.confirm_discard():
+            return
+        try:
+            state, missing = project.load(path)
+        except Exception as e:
+            traceback.print_exc()
+            self.show_alert("Open project", f"{Path(path).name} couldn't be opened.\n{e}")
+            return
+        self.clear_all()
+        self.project_path = None
+        # settings first, tracks load in the background and pick up their own settings
+        self.speed_slider.set(state.get("speed", 1.0))
+        self.on_speed(state.get("speed", 1.0))
+        self.pitch_slider.set(state.get("pitch", 0))
+        self.on_pitch(state.get("pitch", 0))
+        self.manual_cents = round(float(state.get("fine", 0)))
+        res = state.get("auto440_result")
+        self.auto_result = tuple(res) if res else None
+        self.auto = bool(state.get("auto440"))
+        self.auto_var.set(self.auto)
+        self.fine_slider.configure(state="normal")
+        self.fine_slider.set(self.current_cents())
+        self._style_fine()
+        if state.get("master") is not None:
+            self.fader.set_pos(state["master"])
+        loop = state.get("loop") or {}
+        fade = float(loop.get("fade", engine.LOOP_FADE))
+        self.fade_slider.set(fade)
+        self.on_fade(fade)
+        self.player.loop = bool(loop.get("on"))
+        self._style_loop()
+        self._live(0)
+        tracks = state.get("tracks", [])
+        self._restore = {"tracks": {str(Path(t["file"]).resolve()): t for t in tracks},
+                         "loop": loop, "path": str(path)}
+        if missing:
+            self.show_alert("Open project", "These tracks couldn't be found and were left out:\n"
+                            + "\n".join("• " + m for m in missing[:12]))
+        if tracks:
+            self.add_files([t["file"] for t in tracks], names={t["file"]: t.get("name") for t in tracks},
+                           prefer_names=True)
+        else:
+            self._finish_restore()
+
+    def _finish_restore(self):
+        """All tracks of an opened project are in: the loop area, then 'nothing changed yet'."""
+        r = self._restore
+        if not r:
+            return
+        self._restore = None
+        loop = r.get("loop") or {}
+        if loop.get("start") is not None and loop.get("end") is not None:
+            self.player.set_region(loop["start"] * engine.SR, loop["end"] * engine.SR)
+            self.refresh_region()
+        self.refresh_lanes()
+        self._set_project(r["path"])
+
+    def open_recent(self):
+        import project_ui
+        if self.recent_pop is not None and self.recent_pop.frame.winfo_exists() and self.recent_pop.is_open():
+            self.recent_pop.close()
+            return
+        if self.recent_pop is not None and self.recent_pop.frame.winfo_exists():
+            self.recent_pop.frame.destroy()
+        self.recent_pop = project_ui.RecentMenu(self, self.open_btn)
 
     # ----- settings / updates -----
     def open_settings(self):
@@ -1575,12 +1769,27 @@ def run_gui(files=(), smoketest_dir=None):
     root = make_root()
     app = App(root)
     if files:
-        root.after(200, lambda: app.add_files(files))
+        root.after(200, lambda: app.open_paths(files))
+    srv = None
+    if not smoketest_dir:
+        import instance
+        srv = instance.serve(lambda paths: app.events.put(("open_paths", paths)))
+        threading.Thread(target=lambda: _quiet(instance.register_file_type), daemon=True).start()
     if smoketest_dir:
         import smoketest
         root.after(600, lambda: smoketest.run(app, smoketest_dir))
     root.mainloop()
+    if srv is not None:
+        import instance
+        instance.stop(srv)
     return app
+
+
+def _quiet(fn):
+    try:
+        fn()
+    except Exception:
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
@@ -1591,7 +1800,11 @@ if __name__ == "__main__":
         app = run_gui(smoketest_dir=sys.argv[2])
         sys.exit(getattr(app, "smoketest_exit", 1))
     try:
-        run_gui(files=[a for a in sys.argv[1:] if not a.startswith("--")])
+        files = [a for a in sys.argv[1:] if not a.startswith("--")]
+        import instance
+        if instance.hand_off(files):       # already running: it opens the files, this start ends here
+            sys.exit(0)
+        run_gui(files=files)
     except Exception:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + traceback.format_exc())
