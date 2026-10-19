@@ -34,6 +34,13 @@ if not os.environ.get("NISH_NO_DND"):
         TkinterDnD = None
 
 from theme import *  # noqa: E402,F401,F403
+import settings  # noqa: E402
+import updater  # noqa: E402
+
+
+def splitter_is_url(src):
+    import splitter
+    return splitter.is_url(str(src or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -455,10 +462,13 @@ class App:
         self.yt_btn = ToolButton(right, "From YouTube…", self.open_youtube, image=icon("youtube", ACCENT_SOFT, 18),
                                  compound="left", width=168)
         self.yt_btn.pack(side="left", padx=4)
-        ToolButton(right, "Clear all", self.clear_all).pack(side="left", padx=4)
         self.export_btn = ToolButton(right, "Export…", self.open_export, primary=True,
                                      image=icon("export", ACCENT_TXT, 15), compound="left")
         self.export_btn.pack(side="left", padx=(4, 0))
+        self.cog_btn = ToolButton(right, "", self.open_settings, width=40, image=icon("cog", TEXT2, 18))
+        self.cog_btn.pack(side="left", padx=(12, 0))
+        self.settings_pop = None
+        self._style_cog()
         line = ctk.CTkFrame(self.root, fg_color=BORDER, height=1, corner_radius=0)
         line.grid(row=0, column=0, sticky="sew")
 
@@ -1183,10 +1193,17 @@ class App:
             elif kind == "export_progress" and self.export_dialog:
                 self.export_dialog.progress(ev[1])
             elif kind == "yt_info" and ev[1] is self.yt_pop:
+                if isinstance(ev[3], dict) and ev[3].get("error") and ev[3].get("url"):
+                    self.note_yt_failure()      # YouTube couldn't read the link
                 self.yt_pop.got_info(ev[2], ev[3])
             elif kind == "yt_stage" and ev[1] is self.yt_job:
                 ev[1].progress[ev[2]] = ev[3]
                 self._yt_refresh()
+            elif kind == "settings_refresh":
+                if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
+                    self.settings_pop.refresh()
+            elif kind == "update_ready":
+                self.install_update(ev[1])
             elif kind == "yt_done" and ev[1] is self.yt_job:
                 self._yt_finished(ev[1], ev[2], ev[3])
 
@@ -1211,6 +1228,9 @@ class App:
     def _yt_finished(self, job, result, error):
         job.running = False
         job.result, job.error = result, error
+        if error and error != "Cancelled." and splitter_is_url(job.source) \
+                and job.progress.get("download", 0) < 1:
+            self.note_yt_failure()          # YouTube extraction failed (not the split)
         if result and job.opts["workspace"]:
             job.progress["load"] = 1.0
             self.add_files([p for p, _ in result["load"]], names={str(p): lbl for p, lbl in result["load"]})
@@ -1261,6 +1281,41 @@ class App:
         self.player.close()
         self.root.destroy()
 
+    # ----- settings / updates -----
+    def open_settings(self):
+        import settings_menu
+        if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
+            if self.settings_pop.is_open():
+                self.settings_pop.close()
+            else:
+                self.settings_pop.refresh()
+                self.settings_pop.place()
+            return
+        self.settings_pop = settings_menu.SettingsMenu(self, self.cog_btn)
+
+    def _style_cog(self):
+        """The cogwheel turns amber when YouTube keeps failing today (an update may help)."""
+        warn = settings.suggest_update()
+        self.cog_btn.configure(image=icon("cog", AMBER if warn else TEXT2, 18),
+                               border_color=AMBER_BORDER if warn else BORDER2)
+
+    def note_yt_failure(self):
+        settings.note_yt_failure()
+        self._style_cog()
+        if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
+            self.settings_pop.refresh()
+
+    def install_update(self, stage):
+        try:
+            updater.install(stage, restart=True)
+        except Exception as e:
+            traceback.print_exc()
+            if self.settings_pop:
+                self.settings_pop.state, self.settings_pop.error = "error", f"Couldn't start the update: {e}"
+                self.settings_pop.refresh()
+            return
+        self.close()
+
 
 # ---------------------------------------------------------------------------
 # Export dialog
@@ -1279,7 +1334,7 @@ class ExportDialog:
         win.geometry("+%d+%d" % (app.root.winfo_rootx() + 360, app.root.winfo_rooty() + 90))
 
         lanes = app.lanes
-        self.folder = str(Path(lanes[0].track.path).parent)
+        self.folder = settings.export_folder()
         gains = app.player.gains()
         self.tags = engine.tags(app.speed, app.semis, app.current_cents(), app.auto)
         self.region = app.player.active_region()
@@ -1322,7 +1377,7 @@ class ExportDialog:
         if app.semis:
             items.append((f"Pitch {engine.fmt_semitones(app.semis)} semitones".replace("-", "−"), True))
         if app.auto and app.current_cents():
-            items.append(("Auto 440", True))
+            items.append(("Auto 440", "amber"))
         elif not app.auto and round(app.manual_cents):
             items.append((f"Fine {app.manual_cents:+.0f} ct".replace("-", "−"), True))
         for lane, g in zip(lanes, gains):
@@ -1336,9 +1391,10 @@ class ExportDialog:
         if not items:
             items.append(("No changes – a plain mix", False))
         for text, strong in items:
+            bg, fg = (("#3a3220", AMBER) if strong == "amber" else ("#222a40", "#b8c7ff") if strong
+                      else ("#2a2e34", "#a8aeb7"))
             ctk.CTkLabel(chips, text=f"  {text}  ", font=font(12, mono=True), corner_radius=12, height=26,
-                         fg_color="#222a40" if strong else "#2a2e34",
-                         text_color="#b8c7ff" if strong else "#a8aeb7").pack(side="left", padx=(0, 6))
+                         fg_color=bg, text_color=fg).pack(side="left", padx=(0, 6))
         if self.region:
             sp = app.player.speed
             span = f"{fmt_time(self.region[0] / engine.SR / sp)} – {fmt_time(self.region[1] / engine.SR / sp)}"
@@ -1417,6 +1473,7 @@ class ExportDialog:
         d = filedialog.askdirectory(parent=self.win, initialdir=self.folder, title="Export to folder")
         if d:
             self.folder = d
+            settings.set_export_folder(d)   # becomes the default export folder
             self.refresh()
 
     def start(self):

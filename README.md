@@ -43,6 +43,14 @@ click **More info → Run anyway**.
   folder name and the format (FLAC by default; WAV, MP3 320 or Opus 256). **Add to workspace**
   loads the result straight into the player. The first split downloads the AI model once.
 
+- **Export folder**: exports go to your Desktop until you pick another folder with **Change…**;
+  that folder then becomes your default.
+- **Updates** are always manual: the cogwheel in the top right shows your version and has
+  **Check for updates** → **Download and update**. The app downloads the new version, closes,
+  swaps it in and restarts; your settings (export folder, track names, YouTube settings) are kept
+  in `%LOCALAPPDATA%\NiSH Player` and are never touched. If YouTube downloads fail five times on
+  one day, the cogwheel turns amber and suggests checking for an update.
+
 Keyboard: **Space** play/pause, **Home** back to the start.
 
 ## Building it yourself

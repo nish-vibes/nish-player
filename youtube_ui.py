@@ -374,7 +374,7 @@ class YouTubePopover:
                 info = splitter.fetch_info(src)
             except Exception as e:
                 msg = str(e).strip().splitlines()[-1] if str(e).strip() else "Couldn't read that link."
-                info = {"error": msg.replace("ERROR: ", "")}
+                info = {"error": msg.replace("ERROR: ", ""), "url": src}
             self.app.events.put(("yt_info", self, gen, info))
 
         threading.Thread(target=work, daemon=True).start()

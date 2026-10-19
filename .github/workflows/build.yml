@@ -77,9 +77,13 @@ jobs:
           $env:PATH = "$PWD\vendor;$env:PATH"
           python tests/test_engine.py
           python tests/test_splitter.py
+          python tests/test_updater.py
 
       - name: Build exe
         run: pyinstaller NiSHPlayer.spec --noconfirm
+      - name: Stamp the release tag (the app compares it with the latest release)
+        shell: pwsh
+        run: Set-Content -NoNewline -Encoding utf8 dist\NiSHPlayer\build_tag.txt "${{ steps.rel.outputs.tag }}"
 
       - name: GUI smoke test (opens the window and clicks through everything)
         shell: pwsh

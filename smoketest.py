@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 import engine
-from theme import cents_text
+from theme import cents_text, AMBER_BORDER
 
 
 def make_song(folder, seconds=8.0, a_hz=436.8):
@@ -37,6 +37,9 @@ def make_song(folder, seconds=8.0, a_hz=436.8):
 def run(app, out_dir):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    import settings
+    import updater
+    settings.FILE = out / "settings.json"     # don't touch the real user settings
     report = out / "gui_smoketest.txt"
     lines = []
 
@@ -371,6 +374,61 @@ def run(app, out_dir):
         yield 0.2
         log("ok: Auto 440 corrects small offsets too (no dead zone); 'couldn't detect' popup turns it off")
 
+        # export folder: the Desktop by default; "Change…" makes the new folder the default
+        assert settings.export_folder() == settings.desktop()
+        app.open_export()
+        yield 0.5
+        d = app.export_dialog
+        assert d.folder == settings.desktop(), d.folder
+        d.close()
+        settings.set_export_folder(str(out))
+        app.open_export()
+        yield 0.5
+        assert app.export_dialog.folder == str(out)
+        app.export_dialog.close()
+        log(f"ok: export folder defaults to the Desktop ({settings.desktop()}) and remembers a new choice")
+
+        # settings cog: manual update check (GitHub simulated), YouTube-failure notice
+        assert not hasattr(app, "clear_btn")
+        real_check = updater.check
+        updater.check = lambda: {"tag": "v9.9.9", "newer": True, "url": "https://example.invalid/x.zip",
+                                 "size": 268_000_000, "notes": ""}
+        app.cog_btn.invoke()
+        yield 0.4
+        m = app.settings_pop
+        assert m.is_open() and m.btn.cget("text") == "Check for updates" and not m.notice.winfo_ismapped()
+        m.btn.invoke()
+        for _ in range(30):
+            if m.state != "checking":
+                break
+            yield 0.1
+        yield 0.3
+        assert m.state == "newer" and "9.9.9 is available (268 MB)" in m.msg.cget("text"), m.msg.cget("text")
+        assert m.btn.cget("text") in ("Download and update", "Open download page"), m.btn.cget("text")
+        shot("6-update")
+        updater.check = lambda: {"tag": updater.current_tag(), "newer": False, "url": None, "size": None,
+                                 "notes": ""}
+        m.state = "idle"
+        m.btn.invoke()
+        for _ in range(30):
+            if m.state != "checking":
+                break
+            yield 0.1
+        yield 0.3
+        assert m.state == "latest" and "latest version" in m.msg.cget("text")
+        updater.check = real_check
+        for _ in range(5):
+            app.note_yt_failure()
+        yield 0.2
+        assert m.notice.winfo_ismapped() and "failed 5 times today" in m.notice_lbl.cget("text")
+        assert app.cog_btn.cget("border_color") == AMBER_BORDER
+        shot("6b-update-notice")
+        m.close()
+        settings.put("yt_failures", {})
+        app._style_cog()
+        log("ok: cog menu: Check for updates -> 'Download and update' / latest version; "
+            "amber notice after 5 failed YouTube extractions today")
+
         # loop area: drag on the timeline, loop button, export only the area, clear with ×
         rc = app.ruler
         span = app._ruler_span()
@@ -486,6 +544,10 @@ def run(app, out_dir):
         assert job is not None and pop.work.winfo_ismapped()
         assert pop.body._parent_canvas.yview()[0] == 0.0, "progress view must start at the top"
         f, dot, lbl, meta, bar = pop.step_rows["download"]
+        for _ in range(30):                          # give a busy machine time to lay out the rows
+            if f.winfo_ismapped() and f.winfo_y() < 200:
+                break
+            yield 0.1
         assert f.winfo_ismapped() and f.winfo_y() < 200, "download step not visible"
         log("ok: progress view shows the steps at once, scrolled to the top")
         shot("3b-youtube-working")
