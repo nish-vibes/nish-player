@@ -11,6 +11,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 import splitter
+import theme
 from theme import (ACCENT, ACCENT_HOVER, ACCENT_SOFT, ACCENT_TXT, AMBER, AMBER_TXT, BORDER, BORDER2, BTN,
                    BTN_HOVER, DIM, GREEN, GREEN_BG, GREEN_BORDER, GREEN_TXT, MUTED, SOFT, TEXT, TEXT2,
                    ToolButton, font, icon)
@@ -214,9 +215,9 @@ class YouTubePopover:
                                  border_color=BORDER2, command=lambda: self.show("suffixes"))
         self.cog.grid(row=0, column=3, sticky="ns")
         # karaoke + stems: the karaoke file is saved but only the stems go into the workspace
-        self.kar_note = ctk.CTkLabel(p, text="The karaoke version is saved in the song folder but not added "
-                                             "to the workspace with the stems.", font=font(12),
-                                     text_color=ACCENT_SOFT, anchor="w", justify="left", wraplength=400)
+        self.kar_note = ctk.CTkLabel(p, text="Karaoke-version saves to folder but is not added to workspace.",
+                                     font=ctk.CTkFont(family=theme.UI, size=12, slant="italic"), text_color=MUTED,
+                                     anchor="center", justify="center", wraplength=400)
         self.kar_anchor = tiles
 
         self.tune_box = ctk.CTkFrame(p, corner_radius=10, border_width=1)
