@@ -195,8 +195,8 @@ def run(app, out_dir):
         app.fine_slider.set(12)
         app.on_fine(12)
         assert app.fine_val.cget("text") == "+12 ct"
-        app.auto_var.set(True)
-        app.on_auto()
+        app.auto_chk.toggle()                      # the Auto 440 switch
+        assert app.auto and app.auto_var.get()
         t0 = time.time()
         while app.analysing:
             assert time.time() - t0 < 60, "Auto 440 analysis timed out"

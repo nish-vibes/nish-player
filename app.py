@@ -589,11 +589,10 @@ class App:
         ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color="#3a3220",
                      corner_radius=4, height=18).pack(side="right")
         self.auto_var = tk.BooleanVar(value=False)
-        self.auto_chk = ctk.CTkCheckBox(top, text="Auto 440", variable=self.auto_var, command=self.on_auto,
-                                        font=font(12), text_color=SOFT, checkbox_width=18,
-                                        checkbox_height=18, corner_radius=4, border_width=2,
-                                        fg_color=GREEN, hover_color=GREEN, border_color="#4a515b",
-                                        checkmark_color=ACCENT_TXT)
+        self.auto_chk = ctk.CTkSwitch(top, text="Auto 440", variable=self.auto_var, command=self.on_auto,
+                                      font=font(12), text_color=AMBER, switch_width=34, switch_height=18,
+                                      fg_color="#3a3f47", progress_color=GREEN, button_color="#e6e8eb",
+                                      button_hover_color="#ffffff", width=0)
         self.auto_chk.pack(side="right", padx=(0, 6))
         self.fine_slider = ctk.CTkSlider(fc, from_=-50, to=50, number_of_steps=100, height=18,
                                          command=self.on_fine)
