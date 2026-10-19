@@ -71,6 +71,14 @@ jobs:
           if (-not $f) { throw "This ffmpeg build has no rubberband filter" }
           $f
 
+      - name: Download the AI models (bundled, so the first split needs no download)
+        shell: pwsh
+        run: |
+          $env:TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = "1"
+          python -c "import torch; torch.hub.set_dir('models'); from demucs.pretrained import get_model; [get_model(n) for n in ('htdemucs', 'htdemucs_6s')]"
+          Get-ChildItem models/checkpoints | ForEach-Object { "{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+          if (-not (Get-ChildItem models/checkpoints -Filter *.th)) { throw "No AI models were downloaded" }
+
       - name: Engine tests (decode, speed/pitch, Auto 440, mixing, export)
         shell: pwsh
         run: |

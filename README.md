@@ -44,7 +44,7 @@ click **More info → Run anyway**.
   loads the result straight into the player: the stems when you made stems (the karaoke version is
   saved but not loaded with them), otherwise the karaoke version. A **project** (`<name>.nish`) is
   saved next to the stems (or next to the karaoke file), so the song is easy to find and open again.
-  The first split downloads the AI model once.
+  The AI models come with the app, so splitting works on the first try, even offline.
 
 - **Projects**: **Save…** (Ctrl+S; Ctrl+Shift+S saves a copy under a new name) writes a small
   `.nish` file with the tracks, their names, order, volume, mute and solo, speed, pitch, fine-tune,

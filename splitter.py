@@ -212,6 +212,24 @@ class _Progress:
 _PROGRESS = _Progress()
 
 
+MODELS_DIR = engine.BASE_DIR / "models"   # AI models bundled with the app (models/checkpoints/*.th)
+
+
+def bundled_models():
+    """Names of the model files that came with the app."""
+    ck = MODELS_DIR / "checkpoints"
+    return sorted(p.name for p in ck.glob("*.th")) if ck.is_dir() else []
+
+
+def use_bundled_models():
+    """Point Demucs at the models that ship with the app, so nothing is downloaded."""
+    if bundled_models():
+        import torch
+        torch.hub.set_dir(str(MODELS_DIR))
+        return True
+    return False
+
+
 def demucs_separate(audio, model_name, on_progress, check_cancel):
     """audio (frames, 2) float32 at 44.1 kHz -> {stem name: (frames, 2) array}."""
     os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
@@ -220,6 +238,7 @@ def demucs_separate(audio, model_name, on_progress, check_cancel):
     from demucs.pretrained import get_model
 
     if model_name not in _MODELS:
+        use_bundled_models()
         m = get_model(model_name)
         m.eval()
         _MODELS[model_name] = m

@@ -7,3 +7,4 @@ tmp/
 venv/
 .venv/
 gui-smoke/
+models/

@@ -655,6 +655,14 @@ def run(app, out_dir):
         folder = out / "yt" / "Smoke Song"
         made = sorted(str(p.relative_to(folder)).replace("\\", "/") for p in folder.rglob("*.*"))
         log(f"ok: split took {time.time() - t0:.0f}s, wrote {made}; {job.result['tuning']}")
+        if getattr(sys, "frozen", False):   # the built app: the AI models ship with it, nothing downloaded
+            import splitter
+            import torch
+            have = splitter.bundled_models()
+            assert len(have) >= 2, f"AI models missing from the app: {have}"
+            if not os.environ.get("NISH_FAKE_SPLIT"):
+                assert Path(torch.hub.get_dir()).resolve() == splitter.MODELS_DIR.resolve(), torch.hub.get_dir()
+            log(f"ok: AI models bundled with the app: {have}")
         assert len(made) == 10 and "Smoke Song stems/Smoke Song.nish" in made, made
         t0 = time.time()
         while len(app.lanes) < 6:

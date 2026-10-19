@@ -25,6 +25,9 @@ for exe in ("ffmpeg.exe", "deno.exe"):
     if Path("vendor", exe).exists():
         binaries.append((str(Path("vendor", exe)), "bin"))
 datas.append(("assets", "assets"))
+# the AI models (both Demucs models), so splitting works on the first try and offline
+if Path("models", "checkpoints").is_dir():
+    datas.append(("models", "models"))
 
 a = Analysis(
     ["app.py"],
