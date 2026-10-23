@@ -37,6 +37,7 @@ DEFAULTS = {
     "tune": False,
     "tuned_original": True,
     "workspace": True,
+    "source": "youtube",       # the Split dialog: "youtube" (a link) or "file" (a file on this computer)
 }
 FORMATS = {"FLAC": ".flac", "WAV": ".wav", "MP3": ".mp3", "OPUS": ".opus"}
 HEADROOM = 0.891  # -1 dBFS: the loudest output peak is brought down to this (never boosted)

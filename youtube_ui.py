@@ -1,4 +1,5 @@
-"""The 'Add from YouTube' popover: link, name, karaoke/stems, Auto 440, suffixes, progress."""
+"""The Split popover: a YouTube link or a file on this computer, name, karaoke/stems, Auto 440,
+suffixes, progress."""
 import os
 import subprocess
 import sys
@@ -12,6 +13,11 @@ import customtkinter as ctk
 
 import splitter
 import theme
+
+
+def engine_exts():
+    import engine
+    return engine.AUDIO_EXTS
 from theme import *  # noqa: F401,F403  (colours follow the light/dark theme)
 
 STEP_TEXT = {"download": "Download the original", "split": "Split with AI", "tune": "Tune to A = 440 Hz",
@@ -62,8 +68,15 @@ class YouTubeJob:
             msg = str(e).strip().splitlines()[-1] if str(e).strip() else type(e).__name__
             self.app.events.put(("yt_done", self, None, msg))
 
+    @property
+    def local(self):
+        return os.path.isfile(self.source)
+
+    def step_text(self, key):
+        return "Copy the original" if key == "download" and self.local else STEP_TEXT[key]
+
     def short_status(self):
-        words = {"download": "Downloading", "split": "Splitting", "tune": "Tuning", "save": "Saving",
+        words = {"download": "Copying" if self.local else "Downloading", "split": "Splitting", "tune": "Tuning", "save": "Saving",
                  "load": "Loading"}
         for k in self.steps:
             f = self.progress.get(k, 0.0)
@@ -75,7 +88,7 @@ class YouTubeJob:
         for k in self.steps:
             f = self.progress.get(k, 0.0)
             if f < 1.0:
-                return f"{STEP_TEXT[k]} {int(f * 100)}%"
+                return f"{self.step_text(k)} {int(f * 100)}%"
         return "Finishing…"
 
 
@@ -94,7 +107,7 @@ class YouTubePopover:
                                   corner_radius=14, width=self.W)
         head = ctk.CTkFrame(self.frame, fg_color="transparent")
         head.pack(fill="x", padx=20, pady=(14, 6))
-        self.title = ctk.CTkLabel(head, text="Add from YouTube", font=font(16, "bold"), text_color=TEXT)
+        self.title = ctk.CTkLabel(head, text="Split a song", font=font(16, "bold"), text_color=TEXT)
         self.title.pack(side="left")
         ctk.CTkButton(head, text="", image=icon("close", MUTED, 13), width=30, height=30,
                       fg_color="transparent", hover_color=BTN_HOVER, command=self.close).pack(side="right")
@@ -137,8 +150,11 @@ class YouTubePopover:
                 f.pack(fill="x", padx=12)
             else:
                 f.pack_forget()
-        self.title.configure(text={"setup": "Add from YouTube", "suffixes": "File name suffixes",
-                                   "work": "Add from YouTube"}[which])
+        job = self.app.yt_job
+        working = ("Splitting…" if job and os.path.isfile(job.source) else "Downloading…") if job and job.running \
+            else "Split a song"
+        self.title.configure(text={"setup": "Split a song", "suffixes": "File name suffixes",
+                                   "work": working}[which])
         if which == "work":
             self.refresh_work()
         elif which == "setup":
@@ -156,8 +172,20 @@ class YouTubePopover:
     # ----- main setup view -----
     def _build_setup(self):
         p = self.setup = ctk.CTkFrame(self.body, fg_color="transparent")
-        row = ctk.CTkFrame(p, fg_color="transparent")
-        row.pack(fill="x", pady=(4, 0))
+        # source: a YouTube link or a file on this computer
+        seg = ctk.CTkFrame(p, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=9)
+        seg.pack(fill="x", pady=(4, 10))
+        seg.grid_columnconfigure((0, 1), weight=1, uniform="src")
+        self.src_btns = {}
+        for col, key, text, ic in ((0, "youtube", "YouTube link", "youtube"), (1, "file", "File on this computer", "file")):
+            b = ctk.CTkButton(seg, text=" " + text, height=32, corner_radius=6, border_width=1, compound="left",
+                              command=lambda k=key: self.set_source(k))
+            b.grid(row=0, column=col, sticky="ew", padx=(4 if col == 0 else 2, 4 if col == 1 else 2), pady=4)
+            self.src_btns[key] = (b, ic)
+        self.src_anchor = seg
+        # YouTube: link + Paste
+        row = self.yt_row = ctk.CTkFrame(p, fg_color="transparent")
+        row.pack(fill="x", pady=(0, 0))
         self.url_var = tk.StringVar()
         self.url = ctk.CTkEntry(row, textvariable=self.url_var, placeholder_text="Paste a YouTube link",
                                 height=40, font=font(12, mono=True), fg_color=FIELD, border_color=BORDER2,
@@ -166,10 +194,21 @@ class YouTubePopover:
         ToolButton(row, "Paste", self.paste, height=40, width=70).pack(side="left", padx=(8, 0))
         self.url_var.trace_add("write", lambda *a: self._url_changed())
 
-        card = ctk.CTkFrame(p, fg_color=PANEL, border_color=BORDER, border_width=1, corner_radius=10)
+        # File: the chosen file + Browse…
+        frow = self.file_row = ctk.CTkFrame(p, fg_color="transparent")
+        self.file_var = tk.StringVar()
+        self.file_entry = ctk.CTkEntry(frow, textvariable=self.file_var, placeholder_text="Choose an audio file",
+                                       height=40, font=font(12, mono=True), fg_color=FIELD, border_color=BORDER2,
+                                       text_color=TEXT)
+        self.file_entry.pack(side="left", fill="x", expand=True)
+        ToolButton(frow, "Browse…", self.browse, height=40, width=84).pack(side="left", padx=(8, 0))
+        self.file_var.trace_add("write", lambda *a: self._url_changed())
+
+        card = self.card = ctk.CTkFrame(p, fg_color=PANEL, border_color=BORDER, border_width=1, corner_radius=10)
         card.pack(fill="x", pady=(10, 0))
-        ctk.CTkLabel(card, text="", image=icon("youtube", DIM, 30), width=56, height=44,
-                     fg_color=THUMB, corner_radius=6).pack(side="left", padx=10, pady=10)
+        self.thumb = ctk.CTkLabel(card, text="", image=icon("youtube", DIM, 30), width=56, height=44,
+                                  fg_color=THUMB, corner_radius=6)
+        self.thumb.pack(side="left", padx=10, pady=10)
         txt = ctk.CTkFrame(card, fg_color="transparent")
         txt.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.info_title = ctk.CTkLabel(txt, text="", font=font(13, "bold"), text_color=TEXT, anchor="w",
@@ -178,6 +217,8 @@ class YouTubePopover:
         self.info_sub = ctk.CTkLabel(txt, text="", font=font(11, mono=True), text_color=MUTED, anchor="w",
                                      height=18, wraplength=330, justify="left")
         self.info_sub.pack(fill="x")
+        self.drop_tip = ctk.CTkLabel(p, text="Tip: you can also drop an audio file onto this window.", font=font(12),
+                                     text_color=DIM, anchor="w", height=18)
 
         self.section(p, "FILE NAME")
         self.name_var = tk.StringVar()
@@ -198,8 +239,8 @@ class YouTubePopover:
         ctk.CTkLabel(orig, text=" Original", image=icon("check", GREEN, 12), compound="left",
                      font=font(13, "bold"), text_color=SOFT, anchor="w", height=20).pack(fill="x", padx=10,
                                                                                         pady=(8, 0))
-        ctk.CTkLabel(orig, text="always saved", font=font(11), text_color=DIM, anchor="w", height=16).pack(
-            fill="x", padx=10, pady=(0, 8))
+        self.orig_note = ctk.CTkLabel(orig, text="always saved", font=font(11), text_color=DIM, anchor="w", height=16)
+        self.orig_note.pack(fill="x", padx=10, pady=(0, 8))
         self.tiles = {}
         for col, key, title in ((1, "karaoke", "Karaoke"), (2, "stems", "6 stems")):
             b = ctk.CTkButton(tiles, text="", height=56, corner_radius=8, border_width=1, anchor="w",
@@ -261,7 +302,66 @@ class YouTubePopover:
         self.go.pack(side="right")
         ToolButton(foot, "Cancel", self.close, height=40, width=84).pack(side="right", padx=8)
 
+    def source(self):
+        return "file" if self.s.get("source") == "file" else "youtube"
+
+    def set_source(self, key):
+        if key == self.source():
+            return
+        self.s["source"] = key
+        self.save()
+        self.refresh_setup()
+        self.lookup()
+        (self.file_entry if key == "file" else self.url).focus_set()
+
+    def browse(self):
+        start = self.file_var.get().strip().strip('"')
+        start = str(Path(start).parent) if start and Path(start).parent.is_dir() else self.app.last_dir
+        exts = " ".join("*" + e for e in sorted(engine_exts()))
+        f = filedialog.askopenfilename(parent=self.root, title="Choose a song to split", initialdir=start,
+                                       filetypes=[("Audio files", exts), ("All files", "*.*")])
+        if f:
+            self.set_file(f)
+
+    def set_file(self, path):
+        self.s["source"] = "file"
+        self.file_var.set(str(Path(path)))
+        self.save()
+        self.refresh_setup()
+        self.lookup()
+
+    def accepts_drop(self, paths):
+        """A single audio file dropped while the setup view is open: split that file."""
+        audio = [p for p in paths if Path(p).is_file() and Path(p).suffix.lower() in engine_exts()]
+        if len(paths) != 1 or len(audio) != 1 or not self.setup.winfo_ismapped():
+            return False
+        self.set_file(audio[0])
+        return True
+
+    def current_source(self):
+        if self.source() == "file":
+            return self.file_var.get().strip().strip('"')
+        return self.url_var.get().strip().strip('"')
+
     def refresh_setup(self):
+        is_file = self.source() == "file"
+        for key, (b, ic) in self.src_btns.items():
+            on = key == self.source()
+            b.configure(fg_color=ACCENT_TINT if on else FIELD, border_color=ACCENT if on else FIELD,
+                        hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER, text_color=ACCENT_SOFT if on else SOFT,
+                        font=font(13, "bold") if on else font(13), image=icon(ic, ACCENT_SOFT if on else DIM, 15))
+        if is_file:
+            self.yt_row.pack_forget()
+            self.file_row.pack(fill="x", after=self.src_anchor)
+            self.drop_tip.pack(fill="x", pady=(6, 0), after=self.card)
+        else:
+            self.file_row.pack_forget()
+            self.drop_tip.pack_forget()
+            self.yt_row.pack(fill="x", after=self.src_anchor)
+        self.thumb.configure(image=icon("wave" if is_file else "youtube", DIM, 30 if not is_file else 26))
+        self.orig_note.configure(text="copied, untouched" if is_file else "always saved")
+        any_split = self.s["karaoke"] or self.s["stems"]
+        self.go.configure(text=("Split" if any_split else "Save") if is_file else "Download")
         for key, (b, title) in self.tiles.items():
             on = self.s[key]
             note = self.s['suffixes']['karaoke'] if key == "karaoke" else "own folder"
@@ -294,9 +394,9 @@ class YouTubePopover:
         n = self.name_var.get().strip()
         if n:
             return splitter.sanitize(n)
-        if self.info and not self.info.get("error"):
+        if self.info and not self.info.get("error") and not self.info.get("loading"):
             return splitter.sanitize(self.info["title"])
-        return "[Video title]"
+        return "[File name]" if self.source() == "file" else "[Video title]"
 
     def refresh_preview(self):
         name = self.current_name()
@@ -362,14 +462,29 @@ class YouTubePopover:
 
     def lookup(self):
         self._info_job = None
-        src = self.url_var.get().strip().strip('"')
+        src = self.current_source()
         self.info_gen += 1
         gen = self.info_gen
         if not src:
             self.info = None
             self.show_info()
             return
-        if os.path.isfile(src):
+        if self.source() == "file":
+            if not os.path.isfile(src):
+                self.info = {"error": "That file wasn't found."}
+            elif Path(src).suffix.lower() not in engine_exts():
+                self.info = {"error": "That isn't an audio file NiSH Player can read."}
+            else:
+                try:
+                    import engine
+                    dur = engine.probe_seconds(src)
+                except Exception:
+                    dur = None
+                self.info = {"title": Path(src).stem, "duration": dur, "ext": Path(src).suffix.lower(),
+                             "quality": Path(src).suffix.lstrip(".").upper() + " · from this computer"}
+            self.show_info()
+            return
+        if os.path.isfile(src):          # a file path pasted as a link still works
             self.info = {"title": Path(src).stem, "duration": None, "ext": Path(src).suffix.lower(),
                          "quality": "local file"}
             self.show_info()
@@ -398,20 +513,24 @@ class YouTubePopover:
 
     def show_info(self):
         i = self.info
+        is_file = self.source() == "file"
         if not i:
-            self.info_title.configure(text="Paste a link to a song")
-            self.info_sub.configure(text="The best audio is saved as-is; karaoke and stems are optional.",
+            self.info_title.configure(text="Choose a song on this computer" if is_file else "Paste a link to a song")
+            self.info_sub.configure(text="The original is copied, never changed; karaoke and stems are optional."
+                                    if is_file else "The best audio is saved as-is; karaoke and stems are optional.",
                                     text_color=MUTED)
+            self.name_entry.configure(placeholder_text="Blank = file name" if is_file else "Blank = video title")
         elif i.get("loading"):
             self.info_title.configure(text="Looking up the video…")
             self.info_sub.configure(text="", text_color=MUTED)
         elif i.get("error"):
-            self.info_title.configure(text="Can't use this link")
+            self.info_title.configure(text="Can't use this file" if is_file else "Can't use this link")
             self.info_sub.configure(text=i["error"][:160], text_color=AMBER_TXT)
         else:
             self.info_title.configure(text=i["title"][:60])
             q = i.get("quality") or ""
-            bits = [fmt_dur(i.get("duration")), q if q == "local file" else ("best quality: " + q if q else "")]
+            local = q == "local file" or "from this computer" in q
+            bits = [fmt_dur(i.get("duration")), q if local else ("best quality: " + q if q else "")]
             self.info_sub.configure(text=" · ".join(b for b in bits if b), text_color=MUTED)
             self.name_entry.configure(placeholder_text=f"Blank = {i['title'][:40]}")
         self.refresh_preview()
@@ -499,13 +618,15 @@ class YouTubePopover:
         self.work_btn = ToolButton(foot, "Cancel", self.cancel_or_back, height=36, width=90)
         self.work_btn.pack(side="right")
         self.show_btn = ToolButton(foot, "Show folder", self.show_folder, height=36)
-        self.again_btn = ToolButton(foot, "Add another", self.add_another, height=36, primary=True)
+        self.again_btn = ToolButton(foot, "Split another", self.add_another, height=36, primary=True)
 
     def refresh_work(self):
         job = self.app.yt_job
         if not job:
             return
         self.work_name.configure(text=job.result["name"] if job.result else (job.name or self.current_name()))
+        if self.work.winfo_ismapped():
+            self.title.configure(text=("Splitting…" if job.local else "Downloading…") if job.running else "Split a song")
         for k, (f, dot, lbl, meta, bar) in self.step_rows.items():
             f.pack_forget()
         for k in job.steps:
@@ -516,6 +637,8 @@ class YouTubePopover:
                 lbl.configure(text="Split into stems" + (" + karaoke" if job.opts["karaoke"] else ""))
             elif k == "split":
                 lbl.configure(text="Make the karaoke version")
+            elif k == "download":
+                lbl.configure(text=job.step_text(k))
             started = k in job.progress
             done = prog >= 1.0 or (k == "load" and job.result is not None)
             active = started and not done and job.running
@@ -571,6 +694,7 @@ class YouTubePopover:
     def add_another(self):
         self.app.yt_job = None
         self.url_var.set("")
+        self.file_var.set("")
         self.name_var.set("")
         self.show("setup")
 
@@ -589,9 +713,11 @@ class YouTubePopover:
 
     # ----- start -----
     def start(self):
-        src = self.url_var.get().strip().strip('"')
-        if not src or not (splitter.is_url(src) or os.path.isfile(src)):
-            self.info = {"error": "Paste a YouTube link first."}
+        src = self.current_source()
+        if not src or not (splitter.is_url(src) or os.path.isfile(src)) or \
+                (self.source() == "file" and not os.path.isfile(src)):
+            self.info = {"error": "Choose an audio file first." if self.source() == "file"
+                         else "Paste a YouTube link first."}
             self.show_info()
             return
         if self.app.yt_job and self.app.yt_job.running:

@@ -861,7 +861,7 @@ class App:
         self.recent_btn.pack(side="left", padx=(2, 0))
         self.save_btn = ToolButton(right, "Save…", lambda: self.save_project(), width=76)
         self.save_btn.pack(side="left", padx=4)
-        self.yt_btn = ToolButton(right, "From YouTube…", self.open_youtube, image=icon("youtube", ACCENT_SOFT, 18),
+        self.yt_btn = ToolButton(right, "Split…", self.open_youtube, image=icon("split", ACCENT_SOFT, 18),
                                  compound="left", width=168)
         self.yt_btn.pack(side="left", padx=4)
         self.export_btn = ToolButton(right, "Export…", self.open_export, primary=True,
@@ -1125,7 +1125,11 @@ class App:
 
     def _on_drop(self, event):
         self._drop_highlight(False)
-        self.open_paths(self.root.tk.splitlist(event.data))
+        paths = self.root.tk.splitlist(event.data)
+        pop = self.yt_pop
+        if pop is not None and pop.is_open() and pop.accepts_drop(paths):
+            return event.action        # the Split dialog takes the file to split
+        self.open_paths(paths)
         return event.action
 
     def add_files(self, paths, names=None, prefer_names=False):
@@ -1839,7 +1843,7 @@ class App:
             self.yt_btn.configure(image=icon("check", GREEN, 16), text="Done", border_color=GREEN_BORDER,
                                   text_color=GREEN_TXT)
         else:
-            self.yt_btn.configure(image=icon("youtube", ACCENT_SOFT, 18), text="From YouTube…",
+            self.yt_btn.configure(image=icon("split", ACCENT_SOFT, 18), text="Split…",
                                   border_color=BORDER2, text_color=TEXT2)
 
     def flash(self, msg, ms=4000):

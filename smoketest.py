@@ -742,16 +742,28 @@ def run(app, out_dir):
         app.open_youtube()
         yield 0.5
         pop = app.yt_pop
-        assert pop.is_open()
-        pop.url_var.set(str(song))
+        assert pop.is_open() and app.yt_btn.cget("text") == "Split…"
+        assert pop.title.cget("text") == "Split a song"
+        pop.set_source("youtube")
+        yield 0.2
+        assert pop.yt_row.winfo_ismapped() and not pop.file_row.winfo_ismapped()
+        assert pop.go.cget("text") == "Download"
+        pop.set_source("file")                      # Split a file on this computer
+        yield 0.2
+        assert pop.file_row.winfo_ismapped() and not pop.yt_row.winfo_ismapped() and pop.drop_tip.winfo_ismapped()
+        assert not pop.accepts_drop([str(song), str(song)])            # one file at a time
+        assert pop.accepts_drop([str(song)])                           # dropped onto the window
         yield 1.0
+        assert pop.file_var.get() == str(song) and pop.s["source"] == "file"
         assert pop.info and pop.info.get("title") == "Smoke Song source", pop.info
+        assert pop.info.get("duration", 0) > 1 and "from this computer" in pop.info_sub.cget("text"), pop.info
         pop.name_var.set("Smoke Song")
         pop.s.update(karaoke=True, stems=True, out_root=str(out / "yt"))
         pop.tune_var.set(True)
         pop.tuned_var.set(True)
         pop.ws_var.set(True)
         pop.refresh_setup()
+        assert pop.go.cget("text") == "Split" and pop.orig_note.cget("text") == "copied, untouched"
         pop.cog.invoke()
         yield 0.3
         assert pop.suf.winfo_ismapped()
@@ -765,7 +777,8 @@ def run(app, out_dir):
         for want in ("Smoke Song.wav", "Smoke Song_440hz.flac", "Smoke Song_NoVox_440hz.flac",
                      "Smoke Song stems", "Smoke Song_VOX_440hz.flac"):
             assert want in txt, (want, txt)
-        log("ok: YouTube popover: name, karaoke + stems, Auto 440 + tuned copy, suffixes, folder preview")
+        log("ok: Split popover: YouTube link or a file (Browse or drop), name, karaoke + stems, Auto 440 + "
+            "tuned copy, suffixes, folder preview")
         shot("3-youtube")
         pop.body._parent_canvas.yview_moveto(1.0)   # scrolled down to reach the Download button
         yield 0.2
@@ -780,11 +793,13 @@ def run(app, out_dir):
                 break
             yield 0.1
         assert f.winfo_ismapped() and f.winfo_y() < 200, "download step not visible"
+        assert lbl.cget("text") == "Copy the original" and pop.title.cget("text") == "Splitting…", (
+            lbl.cget("text"), pop.title.cget("text"))
         log("ok: progress view shows the steps at once, scrolled to the top")
         shot("3b-youtube-working")
         pop.close()
         yield 0.4
-        assert app.yt_btn.cget("text") != "From YouTube…", app.yt_btn.cget("text")
+        assert app.yt_btn.cget("text") != "Split…", app.yt_btn.cget("text")
         assert "YouTube" not in app.status.cget("text"), app.status.cget("text")
         log(f"ok: popover closed, header button spins: '{app.yt_btn.cget('text')}'")
         app.open_youtube()
@@ -824,7 +839,7 @@ def run(app, out_dir):
         log("ok: stems added to the workspace in order")
         assert app.yt_btn.cget("text") == "Done"
         t0 = time.time()
-        while app.yt_btn.cget("text") != "From YouTube…":
+        while app.yt_btn.cget("text") != "Split…":
             assert time.time() - t0 < 10, "button did not go back to normal"
             yield 0.3
         log("ok: header button shows Done, then returns to normal")

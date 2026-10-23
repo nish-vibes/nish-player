@@ -197,6 +197,31 @@ def icon(name, color, size=16):
         for cx in (S * .36, S * .64):
             for cy in (S * .2, S * .5, S * .8):
                 d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
+    elif name == "split":         # one line splitting into three (the Split… button)
+        u = S / 24
+
+        def curve(p0, p1, p2, p3, n=14):
+            pts = []
+            for i in range(n + 1):
+                t = i / n
+                x = (1 - t) ** 3 * p0[0] + 3 * (1 - t) ** 2 * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t ** 3 * p3[0]
+                y = (1 - t) ** 3 * p0[1] + 3 * (1 - t) ** 2 * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t ** 3 * p3[1]
+                pts.append((x * u, y * u))
+            return pts
+        d.line([(3 * u, 12 * u), (21 * u, 12 * u)], fill=color, width=w)
+        d.line(curve((9, 12), (13, 12), (14, 5), (21, 5)), fill=color, width=w, joint="curve")
+        d.line(curve((9, 12), (13, 12), (14, 19), (21, 19)), fill=color, width=w, joint="curve")
+    elif name == "file":          # a document with a note on it
+        u = S / 24
+        d.line([(14 * u, 3 * u), (7 * u, 3 * u), (5 * u, 5 * u), (5 * u, 19 * u), (7 * u, 21 * u), (17 * u, 21 * u),
+                (19 * u, 19 * u), (19 * u, 8 * u), (14 * u, 3 * u), (14 * u, 8 * u), (19 * u, 8 * u)],
+               fill=color, width=w, joint="curve")
+        d.line([(10 * u, 17.5 * u), (10 * u, 11.5 * u), (15 * u, 10.5 * u), (15 * u, 16.5 * u)], fill=color, width=w)
+        d.ellipse([7.7 * u, 16.2 * u, 10.3 * u, 18.8 * u], fill=color)
+        d.ellipse([12.7 * u, 15.2 * u, 15.3 * u, 17.8 * u], fill=color)
+    elif name == "wave":          # waveform bars (like the logo)
+        for x, h in ((4, 4), (8, 12), (12, 18), (16, 10), (20, 4)):
+            d.line([(x * S / 24, (12 - h / 2) * S / 24), (x * S / 24, (12 + h / 2) * S / 24)], fill=color, width=w)
     elif name == "youtube":
         d.rounded_rectangle([S * .06, S * .2, S * .94, S * .8], radius=S * .18, outline=color, width=w)
         d.polygon([(S * .42, S * .36), (S * .42, S * .64), (S * .66, S * .5)], fill=color)
