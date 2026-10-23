@@ -44,7 +44,10 @@ def run(app, out_dir):
     import project
     import settings
     import updater
-    settings.FILE = out / "settings.json"     # don't touch the real user settings
+    import splitter
+    settings.FILE = out / "settings.json"     # don't touch the real user settings,
+    splitter.SETTINGS_FILE = out / "split.json"   # Split choices
+    engine.LABELS_FILE = out / "labels.json"      # or track names
     app.ask_save_changes = lambda: False       # never block on a real "Save changes?" box
     report = out / "gui_smoketest.txt"
     lines = []
@@ -767,6 +770,14 @@ def run(app, out_dir):
         yield 0.5
         pop = app.split_pop
         assert pop.is_open() and app.split_btn.cget("text") == "Split"
+        assert pop.info_title.cget("text") in ("Paste a link to a song", "Choose a song on this computer"), \
+            pop.info_title.cget("text")          # the card has its hint on the first open, too
+        assert pop.name_hint.lbl.winfo_ismapped() and "Blank = " in pop.name_hint.lbl.cget("text")
+        pop.name_var.set("x")
+        yield 0.1
+        assert not pop.name_hint.lbl.winfo_ismapped()       # the hint goes away while there's text
+        pop.name_var.set("")
+        yield 0.1
         assert pop.title.cget("text") == "Split song"
         ch = pop.choices
         E = lambda **k: type("E", (), {"x": 0, "y": 0, **k})()
