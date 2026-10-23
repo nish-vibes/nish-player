@@ -2,7 +2,9 @@ name: Build Windows app
 
 on:
   push:
-    branches: [main]
+    # main = what users get. release/** = hotfixes for an older line (e.g. release/1.6).
+    # v2 = the 2.0 work: built and tested, but never published as a release.
+    branches: [main, "release/**", v2]
   workflow_dispatch:
   schedule:
     # Weekly: rebuild with the newest yt-dlp so YouTube downloads keep working.
@@ -51,9 +53,14 @@ jobs:
               TAG="$V-yt$YTV"; PUBLISH=true
               echo "New yt-dlp - publishing $TAG"
             fi
-          elif [[ "$GITHUB_REF" == "refs/heads/main" ]] && ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            PUBLISH=true
-            echo "New version $V - will publish a release if everything passes."
+          elif [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" == refs/heads/release/* ]]; then
+            if ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              PUBLISH=true
+              echo "New version $V - will publish a release if everything passes."
+            fi
+          else
+            TAG="$V-dev"
+            echo "Development build $TAG - kept as a build artifact, not published."
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
