@@ -5,61 +5,101 @@ import sys
 import customtkinter as ctk
 
 # ---------- colours ----------
-# Every colour has a job and a (dark, light) pair; the same names as the design canvas's colour
-# system. set_mode() switches all of them (and the copies other modules made with "from theme import").
-PALETTE = {
-    # surfaces
-    "BG": ("#111316", "#f3f4f6"), "HEADER": ("#16191d", "#ffffff"), "PANEL": ("#15181c", "#ffffff"),
-    "LANE_BG": ("#171a1f", "#fafbfc"), "CARD": ("#15181c", "#ffffff"), "POPOVER": ("#1a1d22", "#ffffff"),
-    "FIELD": ("#0f1114", "#ffffff"), "BTN": ("#1c2025", "#f1f3f6"), "BTN_HOVER": ("#252a31", "#e8ebf0"),
-    "SEPARATOR": ("#262b31", "#e6e9ee"), "THUMB": ("#2a2f36", "#eceef2"),
-    "SELECTED": ("#1a2030", "#edf1ff"), "SELECTED_WAVE": ("#171c26", "#f5f7ff"),
-    "DROP_HOT": ("#182033", "#eef2ff"), "RANGE_IDLE": ("#22272f", "#e9ecf0"),
-    # lines and controls
-    "BORDER": ("#23272d", "#e1e4ea"), "BORDER2": ("#2c3138", "#d2d7df"), "BORDER_POP": ("#343a42", "#cdd3dc"),
-    "CONTROL": ("#4a515b", "#a0a8b4"), "CONTROL2": ("#3a414a", "#c3c9d2"), "SWITCH_OFF": ("#3a3f47", "#c9cfd8"),
+# Every colour has a job and a (dark, light) pair. set_mode() switches all of them (and the copies
+# other modules made with "from theme import *").
+# The colours the design canvas defines come from design/colors.css (run tools/sync_colors.py after
+# the canvas changes; tests/test_colors.py fails if this block is out of date).
+# >>> generated from design/colors.css by tools/sync_colors.py - do not edit by hand
+CANVAS_COLORS = {
+    "BG": ("#111316", "#f3f4f6"),            # --bg
+    "HEADER": ("#16191d", "#ffffff"),        # --header
+    "PANEL": ("#15181c", "#ffffff"),         # --panel
+    "CARD": ("#15181c", "#ffffff"),          # --panel
+    "LANE_BG": ("#171a1f", "#fafbfc"),       # --lane
+    "WAVE": ("#15181c", "#f1f3f6"),          # --wave
+    "DECK": ("#15181c", "#eceef2"),          # --deck
+    "POPOVER": ("#1a1d22", "#ffffff"),       # --popover
+    "FIELD": ("#0f1114", "#ffffff"),         # --field
+    "BTN": ("#1c2025", "#f1f3f6"),           # --button
+    "SEPARATOR": ("#262b31", "#e6e9ee"),     # --separator
+    "SELECTED": ("#1a2030", "#edf1ff"),      # --selected
+    "CHIP": ("#2a2e34", "#eceef2"),          # --chip
+    "BORDER": ("#23272d", "#e1e4ea"),        # --border
+    "BORDER2": ("#2c3138", "#d2d7df"),       # --border-strong
+    "BORDER_POP": ("#343a42", "#cdd3dc"),    # --border-popover
+    "CONTROL": ("#4a515b", "#a0a8b4"),       # --control
+    "TEXT": ("#eef0f3", "#14171c"),          # --text
+    "TEXT2": ("#d6d9de", "#2a2f37"),         # --text-2
+    "SOFT": ("#b9bec6", "#454d58"),          # --soft
+    "MUTED": ("#8a919b", "#5b6370"),         # --muted
+    "DIM": ("#6b727c", "#6b7380"),           # --dim
+    "ACCENT": ("#7c9cff", "#3d5fd9"),        # --accent
+    "ACCENT_TXT": ("#0f1114", "#ffffff"),    # --on-accent
+    "ACCENT_SOFT": ("#9fb4ff", "#3350c2"),   # --accent-text
+    "ACCENT_TINT": ("#1d2333", "#eaeeff"),   # --accent-tint
+    "ACCENT_BAND": ("#26365a", "#d7e0ff"),   # --accent-band
+    "ACCENT_TRACK": ("#2c3550", "#d6defa"),  # --accent-track
+    "WARN": ("#e8c45a", "#d28208"),          # --warn
+    "WARN_KNOB": ("#eef0f3", "#d28208"),     # --warn-knob
+    "WARN_TRACK": ("#e8c45a", "#f3c27a"),    # --warn-track
+    "LAMP": ("#ffd25a", "#ffb21e"),          # --lamp
+    "GREEN": ("#5fd0a4", "#1f9a6d"),         # --green
+    "GREEN_TXT": ("#9fe3c6", "#126b4b"),     # --green-text
+    "GREEN_BG": ("#14211c", "#e9f7f0"),      # --green-bg
+    "GREEN_BORDER": ("#2f6b55", "#93d5b8"),  # --green-line
+    "RED": ("#ff4d4d", "#d92b2b"),           # --red
+    "RED_TXT": ("#ff8a8a", "#b02222"),       # --red-text
+    "RED_BG": ("#3a1c1c", "#fde6e6"),        # --red-bg
+    "RED_BORDER": ("#6b2a2a", "#eba3a3"),    # --red-line
+    "CLIP_OFF": ("#4a2a2a", "#f1d4d4"),      # --red-off
+    "AMBER": ("#e8c45a", "#8a5d00"),         # --amber
+    "AMBER_TXT": ("#f0d68a", "#6e4a00"),     # --amber-text
+    "AMBER_BG": ("#2a2414", "#fff6dc"),      # --amber-bg-2
+    "AMBER_BORDER": ("#6b5520", "#e2c470"),  # --amber-line
+    "AMBER_BADGE": ("#3a3220", "#fbefcb"),   # --amber-bg
+}
+CANVAS_TRACKS = [   # (strong, soft) per lane, as (dark, light): --track-N, --track-N-soft
+    (("#7c9cff", "#3d5fd9"), ("#33405e", "#c9d4fa")),
+    (("#f2a65a", "#cf7a20"), ("#5a4430", "#f5d8b8")),
+    (("#5fd0a4", "#1f9a6d"), ("#2c5246", "#bfe6d6")),
+    (("#e07bb8", "#c24d8c"), ("#55344a", "#e79bc3")),
+    (("#c4b46a", "#dec334"), ("#4d4831", "#e8e0a5")),
+    (("#8fc3e0", "#2f88b8"), ("#344a57", "#c4e1f0")),
+]
+# <<< end of generated colours
+APP_COLORS = {   # colours the canvas doesn't define: hover and pressed states, switch and fader parts
+    "BTN_HOVER": ("#252a31", "#e8ebf0"),   # the canvas's --button-hover is #232830 in dark; kept as shipped
+    "THUMB": ("#2a2f36", "#eceef2"),
+    "SELECTED_WAVE": ("#171c26", "#f5f7ff"),
+    "DROP_HOT": ("#182033", "#eef2ff"),
+    "RANGE_IDLE": ("#22272f", "#e9ecf0"),
+    "CONTROL2": ("#3a414a", "#c3c9d2"),
+    "SWITCH_OFF": ("#3a3f47", "#c9cfd8"),
     "SWITCH_KNOB": ("#e6e8eb", "#ffffff"),
     "GRIP": ("#5a616b", "#9aa2ad"),
-    # text
-    "TEXT": ("#eef0f3", "#14171c"), "TEXT2": ("#d6d9de", "#2a2f37"), "SOFT": ("#b9bec6", "#454d58"),
-    "BTN_TXT": ("#a8aeb7", "#454d58"), "MUTED": ("#8a919b", "#5b6370"),
-    "DIM": ("#6b727c", "#6b7380"),
-    # accent
-    "ACCENT": ("#7c9cff", "#3d5fd9"), "ACCENT_HOVER": ("#94afff", "#2f4fc7"), "ACCENT_TXT": ("#0f1114", "#ffffff"),
-    "ACCENT_SOFT": ("#9fb4ff", "#3350c2"), "ACCENT_TINT": ("#1d2333", "#eaeeff"),
-    "ACCENT_TINT_HOVER": ("#232b40", "#dfe6ff"), "ACCENT_SEL": ("#33405e", "#d3ddff"),
+    "BTN_TXT": ("#a8aeb7", "#454d58"),
+    "ACCENT_HOVER": ("#94afff", "#2f4fc7"),
+    "ACCENT_TINT_HOVER": ("#232b40", "#dfe6ff"),
+    "ACCENT_SEL": ("#33405e", "#d3ddff"),
     "ACCENT_SEL_HOVER": ("#3c4b6e", "#c4d1fb"),
-    "ACCENT_BAND": ("#26365a", "#d7e0ff"), "CHIP_ACCENT": ("#222a40", "#e3e9ff"),
-    "CHIP_ACCENT_TXT": ("#b8c7ff", "#2e49b0"), "CHIP": ("#2a2e34", "#eceef2"),
-    "BAND_ON": ("#2a3a60", "#c9d6ff"), "BAND_OFF": ("#2a2f37", "#dfe2e8"),
-    "PLAYHEAD": ("#ffffff", "#14171c"), "ACCENT_TRACK": ("#2c3550", "#d6defa"),
-    # quieter surfaces: waveform area, dialogs and the playback panel (its cards stay PANEL)
-    "WAVE": ("#15181c", "#f1f3f6"), "DECK": ("#15181c", "#eceef2"),
-    # Auto 440: warning orange, the switch, the lamp
-    "WARN": ("#e8c45a", "#d28208"), "WARN_KNOB": ("#eef0f3", "#d28208"), "WARN_TRACK": ("#e8c45a", "#f3c27a"),
-    "LAMP": ("#ffd25a", "#ffb21e"),
-    # green: done / saved, and the fine-tune card while Auto 440 is on
-    "GREEN": ("#5fd0a4", "#1f9a6d"), "GREEN_TXT": ("#9fe3c6", "#126b4b"), "GREEN_BG": ("#14211c", "#e9f7f0"),
-    "GREEN_BORDER": ("#2f6b55", "#93d5b8"),
-    # clip / mute red
-    "RED": ("#ff4d4d", "#d92b2b"), "RED_TXT": ("#ff8a8a", "#b02222"), "RED_BG": ("#3a1c1c", "#fde6e6"),
-    "RED_BORDER": ("#6b2a2a", "#eba3a3"), "CLIP_OFF": ("#4a2a2a", "#f1d4d4"),
-    # beta / warning amber
-    "AMBER": ("#e8c45a", "#8a5d00"), "AMBER_TXT": ("#f0d68a", "#6e4a00"), "AMBER_BG": ("#2a2414", "#fff6dc"),
-    "AMBER_BORDER": ("#6b5520", "#e2c470"), "AMBER_BADGE": ("#3a3220", "#fbefcb"),
-    # master fader
-    "SLOT": ("#0f1114", "#e1e4ea"), "FADER_CAP": ("#e6e8eb", "#ffffff"), "FADER_CAP_EDGE": ("#9aa0a8", "#8a929e"),
+    "CHIP_ACCENT": ("#222a40", "#e3e9ff"),
+    "CHIP_ACCENT_TXT": ("#b8c7ff", "#2e49b0"),
+    "BAND_ON": ("#2a3a60", "#c9d6ff"),
+    "BAND_OFF": ("#2a2f37", "#dfe2e8"),
+    "PLAYHEAD": ("#ffffff", "#14171c"),
+    "SLOT": ("#0f1114", "#e1e4ea"),
+    "FADER_CAP": ("#e6e8eb", "#ffffff"),
+    "FADER_CAP_EDGE": ("#9aa0a8", "#8a929e"),
     "FADER_CAP_MARK": ("#0f1114", "#14171c"),
 }
+PALETTE = {**CANVAS_COLORS, **APP_COLORS}
 GROUPS = {   # colours that come in sets
     "MUTE_ON": (("#4a2626", "#fde6e6"), ("#e07b7b", "#d96060"), ("#ffb3b3", "#a12a2a")),
     "SOLO_ON": (("#4a3f1c", "#fff0c4"), ("#e8c45a", "#c99a1a"), ("#ffe08a", "#6e4a00")),
 }
-TRACK_PAIRS = [   # (strong, soft) per lane, as (dark, light)
-    (("#7c9cff", "#3d5fd9"), ("#33405e", "#c9d4fa")), (("#f2a65a", "#cf7a20"), ("#5a4430", "#f5d8b8")),
-    (("#5fd0a4", "#1f9a6d"), ("#2c5246", "#bfe6d6")), (("#e07bb8", "#c24d8c"), ("#55344a", "#e79bc3")),
-    (("#c4b46a", "#dec334"), ("#4d4831", "#e8e0a5")), (("#8fc3e0", "#2f88b8"), ("#344a57", "#c4e1f0")),
-    (("#b48cf2", "#7a52d6"), ("#45385e", "#dccdf7")), (("#e08a7b", "#c65a47"), ("#553530", "#f5cfc8")),
+TRACK_PAIRS = CANVAS_TRACKS + [   # more lanes than the canvas shows: (strong, soft) as (dark, light)
+    (("#b48cf2", "#7a52d6"), ("#45385e", "#dccdf7")),
+    (("#e08a7b", "#c65a47"), ("#553530", "#f5cfc8")),
 ]
 MODE = "dark"
 
