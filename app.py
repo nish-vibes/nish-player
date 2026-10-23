@@ -256,7 +256,7 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
             elif kind == "split_done" and ev[1] is self.split_job:
                 self._split_finished(ev[1], ev[2], ev[3])
 
-    # ----- Add from YouTube -----
+    # ----- Split song -----
     def open_split(self):
         import split_ui
         if self.split_pop is None or not self.split_pop.frame.winfo_exists():

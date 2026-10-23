@@ -18,17 +18,17 @@ PALETTE = {
     # lines and controls
     "BORDER": ("#23272d", "#e1e4ea"), "BORDER2": ("#2c3138", "#d2d7df"), "BORDER_POP": ("#343a42", "#cdd3dc"),
     "CONTROL": ("#4a515b", "#a0a8b4"), "CONTROL2": ("#3a414a", "#c3c9d2"), "SWITCH_OFF": ("#3a3f47", "#c9cfd8"),
-    "KNOB": ("#d6d9de", "#6b7380"), "KNOB_HOVER": ("#ffffff", "#2a2f37"), "SWITCH_KNOB": ("#e6e8eb", "#ffffff"),
+    "SWITCH_KNOB": ("#e6e8eb", "#ffffff"),
     "GRIP": ("#5a616b", "#9aa2ad"),
     # text
     "TEXT": ("#eef0f3", "#14171c"), "TEXT2": ("#d6d9de", "#2a2f37"), "SOFT": ("#b9bec6", "#454d58"),
-    "BTN_TXT": ("#a8aeb7", "#454d58"), "MUTED": ("#8a919b", "#5b6370"), "FILE_TXT": ("#7d848e", "#6b7380"),
+    "BTN_TXT": ("#a8aeb7", "#454d58"), "MUTED": ("#8a919b", "#5b6370"),
     "DIM": ("#6b727c", "#6b7380"),
     # accent
     "ACCENT": ("#7c9cff", "#3d5fd9"), "ACCENT_HOVER": ("#94afff", "#2f4fc7"), "ACCENT_TXT": ("#0f1114", "#ffffff"),
     "ACCENT_SOFT": ("#9fb4ff", "#3350c2"), "ACCENT_TINT": ("#1d2333", "#eaeeff"),
     "ACCENT_TINT_HOVER": ("#232b40", "#dfe6ff"), "ACCENT_SEL": ("#33405e", "#d3ddff"),
-    "ACCENT_SEL_HOVER": ("#3c4b6e", "#c4d1fb"), "ACCENT_LINE": ("#34508a", "#a9bbf5"),
+    "ACCENT_SEL_HOVER": ("#3c4b6e", "#c4d1fb"),
     "ACCENT_BAND": ("#26365a", "#d7e0ff"), "CHIP_ACCENT": ("#222a40", "#e3e9ff"),
     "CHIP_ACCENT_TXT": ("#b8c7ff", "#2e49b0"), "CHIP": ("#2a2e34", "#eceef2"),
     "BAND_ON": ("#2a3a60", "#c9d6ff"), "BAND_OFF": ("#2a2f37", "#dfe2e8"),
@@ -38,9 +38,9 @@ PALETTE = {
     # Auto 440: warning orange, the switch, the lamp
     "WARN": ("#e8c45a", "#d28208"), "WARN_KNOB": ("#eef0f3", "#d28208"), "WARN_TRACK": ("#e8c45a", "#f3c27a"),
     "LAMP": ("#ffd25a", "#ffb21e"),
-    # Auto 440 green
+    # green: done / saved, and the fine-tune card while Auto 440 is on
     "GREEN": ("#5fd0a4", "#1f9a6d"), "GREEN_TXT": ("#9fe3c6", "#126b4b"), "GREEN_BG": ("#14211c", "#e9f7f0"),
-    "GREEN_BORDER": ("#2f6b55", "#93d5b8"), "GREEN_TRACK": ("#23362e", "#cbeadc"),
+    "GREEN_BORDER": ("#2f6b55", "#93d5b8"),
     # clip / mute red
     "RED": ("#ff4d4d", "#d92b2b"), "RED_TXT": ("#ff8a8a", "#b02222"), "RED_BG": ("#3a1c1c", "#fde6e6"),
     "RED_BORDER": ("#6b2a2a", "#eba3a3"), "CLIP_OFF": ("#4a2a2a", "#f1d4d4"),
@@ -173,9 +173,6 @@ def icon(name, color, size=16):
     elif name == "check":
         d.line([(S * .16, S * .52), (S * .4, S * .76), (S * .86, S * .26)], fill=color, width=w + 2,
                joint="curve")
-    elif name == "pencil":
-        d.line([(S * .24, S * .76), (S * .74, S * .26)], fill=color, width=w + 2)
-        d.polygon([(S * .12, S * .88), (S * .18, S * .66), (S * .34, S * .82)], fill=color)
     elif name == "compact":       # two lines with arrows squeezing in (as in the design)
         u = S / 24
         for a, b in (((4, 9), (20, 9)), ((4, 15), (20, 15))):
@@ -264,12 +261,6 @@ def icon(name, color, size=16):
         d.rounded_rectangle([S * .18, S * .08, S * .82, S * .92], radius=S * .1, outline=color, width=w)
         for x, h in ((.34, .12), (.44, .24), (.54, .16), (.64, .08)):
             d.line([(S * x, S * (.5 - h)), (S * x, S * (.5 + h))], fill=color, width=max(3, w - 2))
-    elif name == "box_on":
-        d.rounded_rectangle([S * .08, S * .08, S * .92, S * .92], radius=S * .2, fill=color)
-        d.line([(S * .26, S * .52), (S * .43, S * .7), (S * .75, S * .32)], fill=ACCENT_TXT, width=w + 2,
-               joint="curve")
-    elif name == "box_off":
-        d.rounded_rectangle([S * .08, S * .08, S * .92, S * .92], radius=S * .2, outline=color, width=w)
     img = img.resize((size * 2, size * 2), Image.LANCZOS)
     _ICONS[key] = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
     return _ICONS[key]

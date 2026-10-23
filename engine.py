@@ -17,7 +17,6 @@ import numpy as np
 
 import tuning
 
-FROZEN = getattr(sys, "frozen", False)
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 BIN_DIR = BASE_DIR / "bin"
 if BIN_DIR.is_dir():

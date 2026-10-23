@@ -81,13 +81,6 @@ class SplitJob:
                 return f"{words[k]} {int(f * 100)}%" if f > 0 else f"{words[k]}…"
         return "Finishing…"
 
-    def status_text(self):
-        for k in self.steps:
-            f = self.progress.get(k, 0.0)
-            if f < 1.0:
-                return f"{self.step_text(k)} {int(f * 100)}%"
-        return "Finishing…"
-
 
 class SplitPopover:
     W = 540

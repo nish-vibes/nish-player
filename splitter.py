@@ -28,7 +28,6 @@ SIX = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 FOUR = ["vocals", "drums", "bass", "other"]
 LABELS = {"vocals": "Vocals", "drums": "Drums", "bass": "Bass", "guitar": "Guitar", "piano": "Piano",
           "other": "Other", "karaoke": "Karaoke", "original": "Original", "tuned": "Original 440 Hz"}
-OUTPUTS = ["original", "karaoke", "stems", "stems6"]
 MODEL_BEST = "htdemucs_ft"     # fine-tuned: the best Demucs model for vocals/drums/bass/other
 MODEL_SIX = "htdemucs_6s"      # the only Demucs model with guitar and piano
 
