@@ -304,8 +304,9 @@ class YouTubePopover:
         items = splitter.plan(name, self.opts(), ext)
         notes = {"original": "original", "tuned": "tuned copy", "karaoke": "karaoke"}
         prel = splitter.project_rel(name, self.opts())
-        if prel:
-            items = items + [("project", prel, "")]
+        if prel:     # the project sits in the song folder, above the stems folder
+            first_sub = next((i for i, (_, r, _) in enumerate(items) if "/" in r), len(items))
+            items = items[:first_sub] + [("project", prel, "")] + items[first_sub:]
             notes["project"] = "project"
         lines = [f"{name}\\"]
         width = max((len(r) for _, r, _ in items if "/" not in r), default=0) + 3

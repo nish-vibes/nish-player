@@ -42,6 +42,32 @@ def write_wav(path, mono):
     engine._encode(st, path, "WAV")
 
 
+def test_automation(ok):
+    """Volume automation: the line replaces the slider, live and in the mix export; off keeps the points."""
+    sr = engine.SR
+    audio = np.full((4 * sr, 2), 0.5, np.float32)
+    t = engine.Track("auto.wav", audio, "Vocals")
+    t.volume = 0.3
+    p = engine.Player()
+    p.tracks = [t]
+    t.set_automation(True, [(0.0, 1.0), (2.0, 0.0), (4.0, 0.0)])
+    assert t.automation_active() and abs(t.level_at(1.0) - 0.5) < 1e-6
+    m = p._fetch_mix(0, 4 * sr)
+    assert abs(m[0, 0] - 0.5) < 1e-3 and abs(m[sr, 0] - 0.25) < 1e-2 and abs(m[3 * sr, 0]) < 1e-6, m[[0, sr, 3 * sr], 0]
+    b = p.mix_block(sr, 10)                       # rendered buffers at 1:1
+    assert abs(b[0, 0] - 0.25) < 1e-2, b[0, 0]
+    t.set_automation(False)                       # off: the slider counts again, points kept
+    assert not t.automation_active() and len(t.auto_pts) == 3
+    assert abs(p._fetch_mix(sr, 1)[0, 0] - 0.15) < 1e-6
+    t.set_automation(True)
+    d = Path(tempfile.mkdtemp(prefix="nish-auto-"))
+    out = engine.export([t], [0.3], 1.0, 1.0, 0, "mix", "WAV", d / "a.wav")[0]
+    y = engine.decode(out)
+    assert abs(y[int(0.05 * sr), 0] - 0.4875) < 0.03 and abs(y[3 * sr, 0]) < 1e-3, (y[int(0.05 * sr), 0], y[3 * sr, 0])
+    p.close()
+    ok("volume automation: live mix, rendered mix and export follow the line; off keeps the points")
+
+
 def main(out_dir=None):
     out = Path(out_dir or tempfile.mkdtemp(prefix="nish-test-"))
     out.mkdir(parents=True, exist_ok=True)
@@ -272,6 +298,7 @@ def main(out_dir=None):
     except RuntimeError:
         ok("all-muted export is refused")
     p.close()
+    test_automation(ok)
     print("ENGINE TESTS PASSED")
     return 0
 

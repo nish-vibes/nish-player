@@ -445,7 +445,18 @@ def run(app, out_dir):
             assert str(Path(sys.executable).resolve()) in cmd and '"%1"' in cmd, cmd
             log(f"ok: .nish registered for double-click: {cmd}")
 
-        # export folder: the Desktop by default; "Change…" makes the new folder the default
+        # export folder: the open project's (song) folder when there is one
+        proj_path = str(pth)
+        app.project_path = proj_path
+        app.open_export()
+        yield 0.5
+        d = app.export_dialog
+        assert d.folder == str(Path(proj_path).parent), d.folder
+        assert "song folder" in d.loc_lbl.cget("text"), d.loc_lbl.cget("text")
+        d.close()
+        log("ok: exports go to the open project's folder")
+        app.project_path = None
+        # otherwise the Desktop by default; "Change…" makes the new folder the default
         assert settings.export_folder() == settings.desktop()
         app.open_export()
         yield 0.5
@@ -458,6 +469,103 @@ def run(app, out_dir):
         assert app.export_dialog.folder == str(out)
         app.export_dialog.close()
         log(f"ok: export folder defaults to the Desktop ({settings.desktop()}) and remembers a new choice")
+
+        # volume automation (A): flat line at the current volume, click adds, drag moves, double-click deletes
+        import theme as _th
+        import project as _proj
+        E = lambda **k: type("E", (), {"x": 0, "y": 0, "y_root": 0, **k})()
+        lane = app.lanes[0]
+        lane.vol.set(80)
+        lane.on_volume(80)
+        lane.auto_btn.invoke()
+        yield 0.3
+        t = lane.track
+        assert t.auto_on and len(t.auto_pts) == 2 and abs(t.auto_pts[0][1] - 0.8) < 1e-6, t.auto_pts
+        assert lane.vol_lbl.cget("text") == "Auto" and lane.vol.cget("state") == "disabled"
+        assert lane.auto_btn.cget("fg_color") == _th.GREEN_BG
+        mid_t = t.auto_pts[-1][0] / 2
+        x, y = lane._xy(mid_t, 0.8)
+        lane._press(E(x=int(x), y=int(y)))
+        _, y2 = lane._xy(mid_t, 0.3)
+        lane._motion(E(x=int(x), y=int(y2)))
+        yield 0.2
+        shot("8-automation")
+        lane._release(E(x=int(x), y=int(y2)))
+        assert len(t.auto_pts) == 3 and abs(t.auto_pts[1][1] - 0.3) < 0.05, t.auto_pts
+        assert abs(float(t.envelope(np.array([t.auto_pts[1][0] * engine.SR]))[0]) - t.auto_pts[1][1]) < 1e-3
+        app.open_export()
+        yield 0.5
+        def texts(w):
+            out = []
+            for c in w.winfo_children():
+                try:
+                    out.append(str(c.cget("text")))
+                except Exception:
+                    pass
+                out += texts(c)
+            return out
+        assert any(f"Automation: {t.label}" in x for x in texts(app.export_dialog.win)), texts(app.export_dialog.win)
+        app.export_dialog.close()
+        st = app.project_state()
+        assert st["tracks"][0]["automation"]["on"] and len(st["tracks"][0]["automation"]["points"]) == 3
+        p2 = _proj.save(out / "Automation.nish", st)
+        app.ask_save_changes = lambda: False
+        app.open_project(p2)
+        for _ in range(100):
+            if app.project_path and len(app.lanes) == n_tracks and not app.loading:
+                break
+            yield 0.1
+        yield 0.5                      # let the waveforms draw at their real width
+        lane = app.lanes[0]
+        t = lane.track
+        assert t.auto_on and len(t.auto_pts) == 3 and lane.vol_lbl.cget("text") == "Auto", t.auto_pts
+        px, py = lane._xy(*t.auto_pts[1])
+        lane._double(E(x=int(px), y=int(py)))
+        assert len(t.auto_pts) == 2
+        lane.auto_btn.invoke()
+        assert not t.auto_on and len(t.auto_pts) == 2 and not t.automation_active()
+        assert lane.vol.cget("state") == "normal" and lane.vol_lbl.cget("text") == "80%"
+        app._set_project(None)
+        log("ok: volume automation: A on/off, add, drag, delete, export chip, saved and reopened in a project")
+
+        # one height for every track: drag an edge, compact mode with V/A/M/S and the volume popover
+        assert app.track_h == 92 and app.lanes[0].head.cget("height") == 92
+        app.resize_start(lane, E(y_root=500))
+        app.resize_move(E(y_root=540))
+        yield 0.2
+        assert app.track_h == 132 and all(l.head.cget("height") == 132 for l in app.lanes)
+        assert app._resize_hint.winfo_ismapped() and "132 px" in app._resize_hint.cget("text")
+        shot("9-resize")
+        app.resize_end()
+        assert settings.get("track_height") == 132
+        app.resize_start(lane, E(y_root=500))
+        app.resize_move(E(y_root=0))
+        app.resize_end()
+        assert app.track_h == 44 and lane.compact, app.track_h
+        app.set_track_height(132, save=True)
+        app.toggle_compact()
+        yield 0.3
+        assert app.track_h == 44 and all(l.compact for l in app.lanes)
+        assert lane.v_btn.winfo_ismapped() and not lane.volrow.winfo_ismapped()
+        cols = [int(w.grid_info()["column"]) for w in (lane.v_btn, lane.auto_btn, lane.mute_btn, lane.solo_btn)]
+        assert cols == sorted(cols), cols                       # V, A, M, S
+        lane.v_btn.invoke()
+        yield 0.3
+        assert app.vol_pop and app.vol_pop.is_open() and lane.v_btn.cget("border_color") == _th.ACCENT, (
+            app.vol_pop, app.vol_pop and app.vol_pop.is_open(), lane.v_btn.cget("border_color"))
+        app.vol_pop.slider.set(40)
+        app.vol_pop.on_change(40)
+        assert abs(lane.track.volume - 0.4) < 1e-6
+        shot("10-compact")
+        lane.v_btn.invoke()
+        assert app.vol_pop is None
+        app.toggle_compact()
+        yield 0.2
+        assert app.track_h == 132 and not lane.compact and lane.volrow.winfo_ismapped()
+        assert int(lane.auto_btn.grid_info()["column"]) == int(lane.solo_btn.grid_info()["column"])  # A under S
+        app.set_track_height(engine_default := 92, save=True)
+        log("ok: track height: drag an edge (all tracks follow, remembered), compact mode V/A/M/S with the "
+            "volume popover, back to the previous height")
 
         # settings cog: manual update check (GitHub simulated), YouTube-failure notice
         assert not hasattr(app, "clear_btn")
@@ -698,7 +806,7 @@ def run(app, out_dir):
             if not os.environ.get("NISH_FAKE_SPLIT"):
                 assert Path(torch.hub.get_dir()).resolve() == splitter.MODELS_DIR.resolve(), torch.hub.get_dir()
             log(f"ok: AI models bundled with the app: {have}")
-        assert len(made) == 10 and "Smoke Song stems/Smoke Song.nish" in made, made
+        assert len(made) == 10 and "Smoke Song.nish" in made, made
         t0 = time.time()
         while len(app.lanes) < 6:
             assert time.time() - t0 < 60, "stems were not added to the workspace"

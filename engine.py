@@ -273,6 +273,40 @@ class Track:
         self.solo = False
         self.buf = audio       # what is playing (rendered or original)
         self.buf_key = (1.0, 0.0, 0.0)
+        self.auto_on = False   # volume automation: when on, the line sets the volume
+        self.auto_pts = []     # [(seconds on the song timeline, linear gain 0..1)], sorted
+        self._env = None       # (sample positions, gains) for the audio thread, or None
+
+    def set_automation(self, on, pts=None):
+        """Turn volume automation on/off and/or replace its points. Off keeps the points."""
+        if pts is not None:
+            clean = sorted((max(0.0, float(t)), max(0.0, min(1.0, float(v)))) for t, v in pts)
+            self.auto_pts = clean
+        self.auto_on = bool(on)
+        if self.auto_on and self.auto_pts:
+            ts = np.array([t for t, _ in self.auto_pts], np.float64) * SR
+            vs = np.array([v for _, v in self.auto_pts], np.float32)
+            self._env = (ts, vs)
+        else:
+            self._env = None
+
+    def automation_active(self):
+        return self._env is not None
+
+    def envelope(self, pos):
+        """Gains at these source sample positions, or None when automation is off."""
+        e = self._env
+        if e is None:
+            return None
+        return np.interp(pos, e[0], e[1]).astype(np.float32)
+
+    def level_at(self, seconds):
+        """The automation level at a time (seconds on the song timeline)."""
+        if not self.auto_pts:
+            return self.volume
+        ts = [t for t, _ in self.auto_pts]
+        vs = [v for _, v in self.auto_pts]
+        return float(np.interp(seconds, ts, vs))
 
     @property
     def vocal(self):
@@ -577,7 +611,8 @@ class Player:
                 continue
             a, b = max(start, 0), min(start + n, len(t.orig))
             if b > a:
-                out[a - start:b - start] += t.orig[a:b] * g
+                env = t.envelope(np.arange(a, b, dtype=np.float64))
+                out[a - start:b - start] += t.orig[a:b] * (g if env is None else env[:, None])
         return out
 
     def mix_block(self, start, frames):
@@ -588,7 +623,11 @@ class Player:
                 continue
             seg = t.buf[start:start + frames]
             if len(seg):
-                out[:len(seg)] += seg * g
+                env = None
+                if t.automation_active():
+                    k = t.buf_key
+                    env = t.envelope((start + np.arange(len(seg), dtype=np.float64)) * chain_rate(k[0], k[2]))
+                out[:len(seg)] += seg * (g if env is None else env[:, None])
         return out
 
     def _direct(self, frames):
@@ -722,13 +761,18 @@ def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=la
     ext = {"WAV": ".wav", "FLAC": ".flac", "MP3": ".mp3", "OPUS": ".opus"}[fmt]
     written = []
 
-    def piece(t):
+    def piece(t, automation=False):
+        rate = chain_rate(speed, cents)
         if region is None:
-            return render(t.orig, speed, semitones, t.vocal, cents)
-        a, b = region
-        seg = render_part(t.orig, a, b, speed, semitones, t.vocal, cents)
-        p = a + np.arange(len(seg)) * chain_rate(speed, cents)
-        return seg * region_gain(p, a, b, fade)[:, None]
+            seg = render(t.orig, speed, semitones, t.vocal, cents)
+            p = np.arange(len(seg), dtype=np.float64) * rate
+        else:
+            a, b = region
+            seg = render_part(t.orig, a, b, speed, semitones, t.vocal, cents)
+            p = a + np.arange(len(seg), dtype=np.float64) * rate
+            seg = seg * region_gain(p, a, b, fade)[:, None]
+        env = t.envelope(p) if automation else None
+        return seg if env is None else seg * env[:, None]
 
     total = len(tracks) + 1
     if mode == "mix":
@@ -737,7 +781,8 @@ def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=la
             progress(i / total)
             if g <= 0:
                 continue
-            buf = piece(t) * (g * master)
+            auto = t.automation_active()        # the line replaces the volume slider
+            buf = piece(t, auto) * ((master if auto else g * master))
             if mix is None:
                 mix = buf.copy()
             else:

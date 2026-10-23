@@ -85,14 +85,14 @@ def main():
              if p.suffix != ".nish"]
     assert max(peaks) <= 0.97, peaks
     assert [lbl for _, lbl in res["load"]] == ["Vocals", "Drums", "Bass", "Guitar", "Piano", "Other"]
-    # karaoke is saved but not loaded with the stems; a project sits next to the stems
-    assert res["project"] == folder / "My Song stems" / "My Song.nish" and res["project"].exists()
+    # karaoke is saved but not loaded with the stems; the project sits in the song's main folder
+    assert res["project"] == folder / "My Song.nish" and res["project"].exists()
     import project
     st, missing = project.load(res["project"])
     assert not missing and [t["name"] for t in st["tracks"]] == ["Vocals", "Drums", "Bass", "Guitar", "Piano",
                                                                  "Other"]
-    assert all("/" not in json_t["file"] for json_t in __import__("json").loads(
-        res["project"].read_text(encoding="utf-8"))["tracks"])          # relative: just the file names
+    assert all(json_t["file"].replace("\\", "/").startswith("My Song stems/") for json_t in __import__("json").loads(
+        res["project"].read_text(encoding="utf-8"))["tracks"])          # relative to the song folder
     ok(f"full job: {len(list(folder.rglob('*.*')))} files, {res['tuning']}")
 
     # karaoke only, no tuning, Opus; original only
@@ -118,8 +118,30 @@ def main():
         raise AssertionError("should have been cancelled")
     except splitter.Cancelled:
         ok("cancel stops the job")
+    test_original_kept_as_opus()
     print("SPLITTER TESTS PASSED")
     return 0
+
+
+def test_original_kept_as_opus():
+    """A YouTube download (Opus in .webm) ends up in the song folder as <name>.opus, not re-encoded."""
+    tmp = Path(tempfile.mkdtemp(prefix="nish-opus-"))
+    dl = tmp / "work" / "download"
+    dl.mkdir(parents=True)
+    webm = dl / "audio.webm"
+    engine._run([engine.ffmpeg_exe(), "-hide_banner", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                 "-c:a", "libopus", "-b:a", "96k", str(webm)])
+    folder = tmp / "out" / "Song"
+    got = splitter.keep_original(webm, folder, "Song", "opus")
+    assert got == folder / "Song.opus" and got.stat().st_size > 0, got
+    assert not webm.exists()
+    assert abs(len(engine.decode(got)) - engine.SR) < engine.SR * 0.1
+    assert splitter.saved_ext("webm", "opus") == ".opus" and splitter.saved_ext("m4a", "mp4a") == ".m4a"
+    # anything else keeps its container
+    m4a = dl / "audio.m4a"
+    m4a.write_bytes(b"x" * 10)
+    assert splitter.keep_original(m4a, folder, "Other", "mp4a") == folder / "Other.m4a"
+    print("ok: original YouTube audio saved in the song folder (Opus as .opus, no re-encoding)")
 
 
 if __name__ == "__main__":

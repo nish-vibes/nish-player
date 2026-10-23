@@ -51,85 +51,145 @@ def splitter_is_url(src):
 
 class Lane:
     BAR = 4  # px per waveform bar
+    PAD = 8  # px above and below the automation line's range
+    H_MIN, H_MAX, H_DEF, H_COMPACT = 44, 200, 92, 64   # one height for every lane; compact below 64
 
     def __init__(self, app, parent, track, colors):
         self.app, self.track = app, track
         self.color, self.dim = colors
+        h = app.track_h
+        self.compact = None
         self.frame = ctk.CTkFrame(parent, fg_color=PANEL, corner_radius=0, border_width=0)
         self.frame.grid_columnconfigure(1, weight=1)
 
-        head = self.head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=HEAD_W, height=92)
+        head = self.head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=HEAD_W, height=h)
         head.grid(row=0, column=0, sticky="nsw")
         head.grid_propagate(False)
         head.grid_columnconfigure(2, weight=1)
+        head.grid_rowconfigure(0, weight=1)
+        head.grid_rowconfigure(3, weight=1)
         self.stripe = ctk.CTkFrame(head, fg_color=ACCENT, width=3, corner_radius=0)
         self.grip = ctk.CTkLabel(head, text="", image=icon("grip", GRIP, 14), width=18, cursor="fleur")
-        self.grip.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(6, 0))
+        self.grip.grid(row=0, column=0, rowspan=4, sticky="ns", padx=(6, 0))
         self.grip.bind("<Button-1>", lambda e: self.app.drag_start(self, e))
         self.grip.bind("<B1-Motion>", lambda e: self.app.drag_move(self, e))
         self.grip.bind("<ButtonRelease-1>", lambda e: self.app.drag_end(self, e))
         sep = ctk.CTkFrame(self.frame, fg_color=BORDER, width=1, height=1, corner_radius=0)
         sep.grid(row=0, column=0, sticky="nse")
 
+        # row 1: dot, name, (compact: V, A), M, S, ×
         self.dot = ctk.CTkLabel(head, text="", image=icon("dot", self.color, 12), width=14)
-        self.dot.grid(row=0, column=1, padx=(2, 4), pady=(10, 0), sticky="w")
         self.name_var = tk.StringVar(value=track.label)
         self.name = ctk.CTkEntry(head, textvariable=self.name_var, font=font(13, "bold"), height=28,
                                  fg_color=LANE_BG, border_width=1, border_color=LANE_BG,
                                  text_color=TEXT, corner_radius=6)
-        self.name.grid(row=0, column=2, sticky="ew", pady=(8, 0))
         self.name.bind("<FocusIn>", lambda e: (self.app.select(self),
                                                self.name.configure(border_color=ACCENT, fg_color=FIELD)))
         self.name.bind("<FocusOut>", lambda e: self._commit_name())
         self.name.bind("<Return>", lambda e: self.app.root.focus_set())
         self.name.bind("<Escape>", lambda e: (self.name_var.set(self.track.label), self.app.root.focus_set()))
-        ctk.CTkLabel(head, text="", image=icon("pencil", DIM, 12), width=14).grid(
-            row=0, column=3, padx=(2, 6), pady=(8, 0))
+        self.v_btn = ctk.CTkButton(head, text="V", width=30, height=28, corner_radius=6, border_width=1,
+                                   font=font(12, "bold", True), command=lambda: self.app.toggle_vol_pop(self))
+        self.auto_btn = ctk.CTkButton(head, text="A", width=30, height=28, corner_radius=6, border_width=1,
+                                      font=font(12, "bold", True), command=self.toggle_auto)
         self.mute_btn = ctk.CTkButton(head, text="M", width=30, height=28, corner_radius=6,
                                       font=font(12, "bold", True), command=self.toggle_mute)
-        self.mute_btn.grid(row=0, column=4, padx=(0, 4), pady=(8, 0))
         self.solo_btn = ctk.CTkButton(head, text="S", width=30, height=28, corner_radius=6,
                                       font=font(12, "bold", True), command=self.toggle_solo)
-        self.solo_btn.grid(row=0, column=5, padx=(0, 4), pady=(8, 0))
         self.solo_btn.bind("<Control-Button-1>", lambda e: (self.app.solo_only(self), "break")[1])
         self.remove_btn = ctk.CTkButton(head, text="", image=icon("close", DIM, 11), width=24, height=28, corner_radius=6,
                                         fg_color="transparent", hover_color=BTN_HOVER, text_color=DIM,
                                         font=font(12), command=lambda: self.app.remove_lane(self))
-        self.remove_btn.grid(row=0, column=6, padx=(0, 10), pady=(8, 0))
 
-        self.file_lbl = ctk.CTkLabel(head, text=Path(track.path).name, text_color=FILE_TXT,
-                                     font=font(11, mono=True), anchor="w", height=20)
-        self.file_lbl.grid(row=1, column=1, columnspan=6, sticky="ew", padx=(4, 12))
+        # row 2: Vol, value, slider, A (directly under S)
         volrow = self.volrow = ctk.CTkFrame(head, fg_color="transparent")
-        volrow.grid(row=2, column=1, columnspan=6, sticky="ew", padx=(4, 12), pady=(0, 6))
-        volrow.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(volrow, text="Vol", text_color=MUTED, font=font(12), width=28, height=22, anchor="w").grid(
-            row=0, column=0)
+        volrow.grid_columnconfigure(2, weight=1)
+        self.vol_name = ctk.CTkLabel(volrow, text="Vol", text_color=MUTED, font=font(12), width=26, height=22,
+                                     anchor="w")
+        self.vol_name.grid(row=0, column=0)
+        self.vol_lbl = ctk.CTkLabel(volrow, text="100%", text_color=MUTED, font=font(11, mono=True),
+                                    width=38, height=22, anchor="e")
+        self.vol_lbl.grid(row=0, column=1, padx=(0, 4))
         self.vol = ctk.CTkSlider(volrow, from_=0, to=100, number_of_steps=100, height=16,
                                  command=self.on_volume, progress_color=self.color,
                                  button_color=KNOB, button_hover_color=KNOB_HOVER, fg_color=BORDER2)
         self.vol.set(100)
         App.ctrl_reset(self.vol, 100, self.on_volume)
-        self.vol.grid(row=0, column=1, sticky="ew", padx=4)
-        self.vol_lbl = ctk.CTkLabel(volrow, text="100%", text_color=MUTED, font=font(11, mono=True),
-                                    width=40, height=22, anchor="e")
-        self.vol_lbl.grid(row=0, column=2)
+        self.vol.grid(row=0, column=2, sticky="ew", padx=(0, 6))
 
-        self.canvas = tk.Canvas(self.frame, height=92, bg=PANEL, highlightthickness=0, cursor="hand2")
+        self.canvas = tk.Canvas(self.frame, height=h, bg=PANEL, highlightthickness=0, cursor="hand2")
         self.canvas.grid(row=0, column=1, sticky="nsew")
         self.canvas.bind("<Configure>", lambda e: self.draw())
-        self.canvas.bind("<Button-1>", lambda e: (self.app.select(self), self._seek(e)))
-        for w in (head, self.dot, self.file_lbl, volrow):
+        self.canvas.bind("<Button-1>", self._press)
+        self.canvas.bind("<B1-Motion>", self._motion)
+        self.canvas.bind("<ButtonRelease-1>", self._release)
+        self.canvas.bind("<Double-Button-1>", self._double)
+        self.canvas.bind("<Motion>", self._hover)
+        self.canvas.bind("<Leave>", lambda e: self._hide_tip())
+        for w in (self.dot, volrow, self.vol_name, self.vol_lbl):
             w.bind("<Button-1>", lambda e: self.app.select(self))
+        # drag the bottom edge of the header to resize all lanes
+        head.bind("<Motion>", lambda e: self._edge_cursor(head, e))
+        head.bind("<Button-1>", lambda e: self._edge_press(head, e) or self.app.select(self))
+        head.bind("<B1-Motion>", lambda e: self.app.resize_move(e))
+        head.bind("<ButtonRelease-1>", lambda e: self.app.resize_end())
+        head.bind("<Double-Button-1>", lambda e: self._edge_double(head, e))
         self.selected = False
-        self.canvas.bind("<B1-Motion>", self._seek)
         self.line = ctk.CTkFrame(self.frame, fg_color=BORDER, height=1, corner_radius=0)
         self.line.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.bars = []
         self.played = 0
         self.silent = False
         self.playhead = None
+        self._pt_drag = None       # index of the automation point being dragged
+        self._resizing = False
+        self.layout()
         self.refresh_buttons()
+
+    # --- layout (normal: two rows; compact: one row) ---
+    def layout(self):
+        compact = self.app.track_h < self.H_COMPACT
+        if compact == self.compact:
+            return
+        self.compact = compact
+        for w in (self.dot, self.name, self.v_btn, self.auto_btn, self.mute_btn, self.solo_btn, self.remove_btn,
+                  self.volrow):
+            w.grid_forget()
+        r = 1
+        self.dot.grid(row=r, column=1, padx=(2, 4), sticky="w")
+        self.name.grid(row=r, column=2, sticky="ew", padx=(0, 4))
+        if compact:
+            self.v_btn.grid(row=r, column=3, padx=(0, 4))
+            self.auto_btn.grid(row=r, column=4, padx=(0, 4))
+        self.mute_btn.grid(row=r, column=5, padx=(0, 4))
+        self.solo_btn.grid(row=r, column=6, padx=(0, 4))
+        self.remove_btn.grid(row=r, column=7, padx=(0, 10))
+        if not compact:
+            self.volrow.grid(row=2, column=1, columnspan=5, sticky="ew", padx=(4, 0), pady=(7, 0))
+            self.auto_btn.grid(row=2, column=6, padx=(0, 4), pady=(7, 0))
+        self.refresh_volume_row()
+
+    def set_height(self, h):
+        self.head.configure(height=h)
+        self.canvas.configure(height=h)
+        self.layout()
+
+    # --- resize from the bottom edge ---
+    def _near_edge(self, widget, e):
+        return e.y >= widget.winfo_height() - 5
+
+    def _edge_cursor(self, widget, e):
+        widget.configure(cursor="sb_v_double_arrow" if self._near_edge(widget, e) else "")
+
+    def _edge_press(self, widget, e):
+        if self._near_edge(widget, e):
+            self.app.resize_start(self, e)
+            return True
+        return False
+
+    def _edge_double(self, widget, e):
+        if self._near_edge(widget, e):
+            self.app.set_track_height(Lane.H_DEF, save=True)
 
     # --- controls ---
     def _commit_name(self):
@@ -153,7 +213,54 @@ class Lane:
 
     def on_volume(self, v):
         self.track.volume = float(v) / 100.0
-        self.vol_lbl.configure(text=f"{int(round(v))}%")
+        if not self.track.auto_on:
+            self.vol_lbl.configure(text=f"{int(round(v))}%")
+        self.app.volume_changed(self)
+
+    def toggle_auto(self):
+        """A: volume automation. The first time, the line starts flat at the current volume.
+        Off keeps the line but ignores it."""
+        self.app.select(self)
+        t = self.track
+        if not t.auto_on and not t.auto_pts:
+            dur = max(1e-3, self.app.player.source_length() / engine.SR)
+            t.set_automation(True, [(0.0, t.volume), (dur, t.volume)])
+        else:
+            t.set_automation(not t.auto_on)
+        self.refresh_buttons()
+        self.refresh_volume_row()
+        self.draw()
+        self.app.automation_changed(self)
+
+    def set_automation(self, on, pts):
+        self.track.set_automation(on, pts)
+        self.refresh_buttons()
+        self.refresh_volume_row()
+        self.draw()
+
+    def refresh_volume_row(self):
+        """With automation on, the volume controls dim and say Auto."""
+        on = self.track.auto_on
+        bg = SELECTED if self.selected else LANE_BG
+        dimc = lambda c: blend(c, bg, 0.55)
+        self.vol_name.configure(text_color=dimc(MUTED) if on else MUTED)
+        self.vol_lbl.configure(text="Auto" if on else f"{int(round(self.track.volume * 100))}%",
+                               text_color=dimc(MUTED) if on else MUTED)
+        self.vol.configure(state="disabled" if on else "normal",
+                           progress_color=dimc(self.color) if on else self.color,
+                           button_color=dimc(KNOB) if on else KNOB, fg_color=dimc(BORDER2) if on else BORDER2)
+        self.refresh_v()
+
+    def refresh_v(self):
+        pop = self.app.vol_pop
+        open_ = bool(pop and pop.lane is self and pop.frame.winfo_exists())
+        bg = SELECTED if self.selected else LANE_BG
+        if open_:
+            self.v_btn.configure(fg_color=ACCENT_TINT, border_color=ACCENT, text_color=ACCENT_TXT,
+                                 hover_color=ACCENT_TINT)
+        else:
+            fg = blend(SOFT, bg, 0.55) if self.track.auto_on else SOFT
+            self.v_btn.configure(fg_color=BTN, border_color=BORDER2, text_color=fg, hover_color=BTN_HOVER)
 
     def set_selected(self, on):
         if on == self.selected:
@@ -168,7 +275,8 @@ class Lane:
         else:
             self.stripe.place_forget()
         self.canvas.configure(bg=SELECTED_WAVE if on else PANEL)
-        self.update_band()
+        self.refresh_volume_row()
+        self.draw()
 
     def refresh_buttons(self):
         for btn, on, cols in ((self.mute_btn, self.track.mute, MUTE_ON),
@@ -179,6 +287,11 @@ class Lane:
             else:
                 btn.configure(fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT,
                               hover_color=BTN_HOVER, border_width=1)
+        if self.track.auto_on:
+            self.auto_btn.configure(fg_color=GREEN_BG, border_color=GREEN_BORDER, text_color=GREEN_TXT,
+                                    hover_color=GREEN_BG)
+        else:
+            self.auto_btn.configure(fg_color=BTN, border_color=BORDER2, text_color=DIM, hover_color=BTN_HOVER)
 
     def set_silent(self, silent):
         if silent != self.silent:
@@ -186,9 +299,15 @@ class Lane:
             self.draw()
 
     # --- waveform ---
+    def bg(self):
+        return SELECTED_WAVE if self.selected else PANEL
+
     def colors(self):
+        bg = self.bg()
         if self.silent:
-            return blend(self.color, PANEL, 0.65), blend(self.dim, PANEL, 0.55)
+            return blend(self.color, bg, 0.65), blend(self.dim, bg, 0.55)
+        if self.track.auto_on:
+            return blend(self.color, bg, 0.55), blend(self.dim, bg, 0.55)
         return self.color, self.dim
 
     def draw(self):
@@ -207,13 +326,161 @@ class Lane:
         for i in range(n):
             seg = pk[idx[i]:max(idx[i] + 1, idx[i + 1])]
             v = float(seg.max()) if len(seg) else 0.0
-            bh = max(1.5, v * (mid - 10))
+            bh = max(1.5, v * (mid - min(10, h / 6)))
             x0 = 8 + i * self.BAR
             self.bars.append(c.create_rectangle(x0, mid - bh, x0 + self.BAR - 1, mid + bh, width=0,
-                                                fill=bright if i < self.played else dim))
+                                                fill=bright if i < self.played else dim, tags="bar"))
         x = 8 + frac * n * self.BAR
-        self.playhead = c.create_line(x, 0, x, h, fill=PLAYHEAD, width=2)
+        self.playhead = c.create_line(x, 0, x, h, fill=PLAYHEAD, width=2, tags="playhead")
         self.update_band()
+        self.draw_auto()
+
+    # --- automation line ---
+    def _dur(self):
+        return max(1e-3, self.app.player.source_length() / engine.SR)
+
+    def _xy(self, t, v):
+        span = max(1, len(self.bars) * self.BAR)
+        h = self.canvas.winfo_height()
+        return 8 + span * t / self._dur(), self.PAD + (1 - v) * (h - 2 * self.PAD)
+
+    def _tv(self, x, y):
+        span = max(1, len(self.bars) * self.BAR)
+        h = self.canvas.winfo_height()
+        t = max(0.0, min(self._dur(), (x - 8) / span * self._dur()))
+        v = max(0.0, min(1.0, 1 - (y - self.PAD) / max(1, h - 2 * self.PAD)))
+        return t, v
+
+    def draw_auto(self, hot=None):
+        c = self.canvas
+        c.delete("auto")
+        if not self.track.auto_on or not self.track.auto_pts or not self.bars:
+            return
+        pts = [self._xy(t, v) for t, v in self.track.auto_pts]
+        x_end = 8 + len(self.bars) * self.BAR
+        line = [(8, pts[0][1])] + pts + [(x_end, pts[-1][1])]
+        h = c.winfo_height()
+        bg = self.bg()
+        flat = [k for p in line for k in p]
+        wash = c.create_polygon(*flat, x_end, h - self.PAD, 8, h - self.PAD, fill=blend(self.color, bg, 0.88),
+                                outline="", tags="auto")
+        c.tag_lower(wash, "bar")
+        c.tag_lower(self.band)
+        c.create_line(*flat, fill=self.color, width=2, tags="auto")
+        for i, (x, y) in enumerate(pts):
+            c.create_oval(x - 4.5, y - 4.5, x + 4.5, y + 4.5, width=2, outline=self.color,
+                          fill=self.color if i == hot else bg, tags="auto")
+        c.tag_raise("playhead")
+
+    def _point_at(self, e):
+        for i, (t, v) in enumerate(self.track.auto_pts):
+            x, y = self._xy(t, v)
+            if abs(e.x - x) <= 7 and abs(e.y - y) <= 7:
+                return i
+        return None
+
+    def _near_line(self, e):
+        t, _ = self._tv(e.x, e.y)
+        _, y = self._xy(t, self.track.level_at(t))
+        return abs(e.y - y) <= 7
+
+    def _show_tip(self, i):
+        t, v = self.track.auto_pts[i]
+        x, y = self._xy(t, v)
+        db = "−∞" if v <= 0 else f"{20 * math.log10(v):+.1f}".replace("-", "−")
+        self.app.show_auto_tip(self, x, y, f"{db} dB · {fmt_time(t)}")
+        self.draw_auto(hot=i)
+
+    def _hide_tip(self):
+        if self._pt_drag is None:
+            self.app.hide_auto_tip()
+            if self.track.auto_on:
+                self.draw_auto()
+
+    def _hover(self, e):
+        c = self.canvas
+        if self._near_edge(c, e):
+            c.configure(cursor="sb_v_double_arrow")
+            return
+        if self.track.auto_on and self._pt_drag is None:
+            i = self._point_at(e)
+            if i is not None:
+                c.configure(cursor="fleur")
+                self._show_tip(i)
+                return
+            c.configure(cursor="plus" if self._near_line(e) else "hand2")
+            self._hide_tip()
+            return
+        c.configure(cursor="hand2")
+
+    def _press(self, e):
+        self.app.select(self)
+        if self._near_edge(self.canvas, e):
+            self._resizing = True
+            self.app.resize_start(self, e)
+            return
+        if self.track.auto_on:
+            i = self._point_at(e)
+            if i is None and self._near_line(e):
+                t, _ = self._tv(e.x, e.y)
+                pts = list(self.track.auto_pts)
+                pts.append((t, self.track.level_at(t)))
+                pts.sort()
+                i = pts.index((t, self.track.level_at(t)))
+                self.track.set_automation(True, pts)
+                self.app.automation_changed(self)
+            if i is not None:
+                self._pt_drag = i
+                self._show_tip(i)
+                return
+        self._seek(e)
+
+    def _motion(self, e):
+        if self._resizing:
+            self.app.resize_move(e)
+            return
+        if self._pt_drag is not None:
+            pts = list(self.track.auto_pts)
+            i = self._pt_drag
+            t, v = self._tv(e.x, e.y)
+            last = len(pts) - 1
+            if i == 0:
+                t = 0.0                       # the ends stay at the start and the end of the song
+            elif i == last:
+                t = pts[i][0]
+            else:
+                t = max(pts[i - 1][0] + 0.01, min(pts[i + 1][0] - 0.01, t))
+            pts[i] = (t, v)
+            self.track.auto_pts = pts
+            self.track.set_automation(True, pts)
+            self._show_tip(i)
+            return
+        self._seek(e)
+
+    def _release(self, e):
+        if self._resizing:
+            self._resizing = False
+            self.app.resize_end()
+            return
+        if self._pt_drag is not None:
+            self._pt_drag = None
+            self.app.automation_changed(self)
+
+    def _double(self, e):
+        if self._near_edge(self.canvas, e):
+            self.app.set_track_height(Lane.H_DEF, save=True)
+            return
+        if not self.track.auto_on:
+            return
+        i = self._point_at(e)
+        if i is not None and 0 < i < len(self.track.auto_pts) - 1:
+            pts = list(self.track.auto_pts)
+            del pts[i]
+            self._pt_drag = None
+            self.track.set_automation(True, pts)
+            self.app.hide_auto_tip()
+            self.draw_auto()
+            self.app.automation_changed(self)
 
     def update_band(self):
         """Faint band behind the waveform showing the loop area."""
@@ -252,6 +519,52 @@ class Lane:
 
     def destroy(self):
         self.frame.destroy()
+
+
+class VolumePopover:
+    """Compact lanes: V opens a small volume slider under the button."""
+    W = 220
+
+    def __init__(self, app, lane):
+        self.app, self.lane, self.root = app, lane, app.root
+        on = lane.track.auto_on
+        f = self.frame = ctk.CTkFrame(self.root, fg_color=POPOVER, border_color=BORDER_POP, border_width=1,
+                                      corner_radius=10, width=self.W, height=44)
+        f.grid_propagate(False)
+        f.grid_columnconfigure(1, weight=1)
+        f.grid_rowconfigure(0, weight=1)
+        dimc = (lambda c: blend(c, POPOVER, 0.55)) if on else (lambda c: c)
+        ctk.CTkLabel(f, text="Vol", font=font(11), text_color=MUTED, width=24).grid(row=0, column=0, padx=(12, 6))
+        self.slider = ctk.CTkSlider(f, from_=0, to=100, number_of_steps=100, height=16, command=self.on_change,
+                                    progress_color=dimc(lane.color), button_color=dimc(KNOB),
+                                    button_hover_color=dimc(KNOB_HOVER), fg_color=dimc(BORDER2),
+                                    state="disabled" if on else "normal")
+        self.slider.set(round(lane.track.volume * 100))
+        self.slider.grid(row=0, column=1, sticky="ew")
+        self.lbl = ctk.CTkLabel(f, text="Auto" if on else f"{round(lane.track.volume * 100)}%", width=38,
+                                font=font(11, mono=True), text_color=MUTED, anchor="e")
+        self.lbl.grid(row=0, column=2, padx=(6, 12))
+        self.place()
+
+    def on_change(self, v):
+        self.lane.vol.set(v)
+        self.lane.on_volume(v)
+        self.lbl.configure(text=f"{int(round(v))}%")
+
+    def place(self):
+        r, a = self.root, self.lane.v_btn
+        r.update_idletasks()
+        x = a.winfo_rootx() - r.winfo_rootx() + a.winfo_width() / 2 - self.W / 2 + 40
+        y = a.winfo_rooty() - r.winfo_rooty() + a.winfo_height() + 6
+        self.frame.place(x=max(12, min(x, r.winfo_width() - self.W - 12)), y=y)
+        self.frame.lift()
+
+    def is_open(self):
+        return bool(self.frame.winfo_exists() and self.frame.winfo_ismapped())
+
+    def close(self):
+        if self.frame.winfo_exists():
+            self.frame.destroy()
 
 
 # ---------------------------------------------------------------------------
@@ -391,11 +704,21 @@ class App:
         self.selected = None
         self._drag = None
         self._yt_status = None
-        self.last_dir = str(Path.home() / "Music")
+        self.last_dir = settings.desktop()    # Open… starts on the Desktop
         self.project_path = None     # the open project (.nish), if any
         self._saved_sig = None       # project state when last saved/opened
         self._restore = None         # settings waiting for tracks that are still loading
         self.recent_pop = None
+        self.vol_pop = None          # compact lanes: the V volume popover
+        self.auto_tip = None         # value tip over an automation point
+        self._resize = None          # (start y, start height) while dragging a lane edge
+        self._resize_hint = None
+        try:
+            h = int(settings.get("track_height", Lane.H_DEF))
+        except (TypeError, ValueError):
+            h = Lane.H_DEF
+        self.track_h = max(Lane.H_MIN, min(Lane.H_MAX, h))      # one height for every lane (remembered)
+        self.prev_h = settings.get("track_height_prev", Lane.H_DEF)
         self.dnd = TkinterDnD is not None
 
         root.title(APP_NAME)
@@ -435,6 +758,7 @@ class App:
         root.bind_all("<Home>", lambda e: None if self._typing() else self.seek(0))
         root.bind_all("<Control-s>", lambda e: (self.save_project(), "break")[1])
         root.bind_all("<Control-S>", lambda e: (self.save_project(save_as=True), "break")[1])
+        root.bind_all("<Button-1>", self._click_anywhere, add="+")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh_all()
         root.after(40, self._tick)
@@ -469,6 +793,7 @@ class App:
         status = self.status.cget("text")
         fader_pos = self.fader.pos
         theme.set_mode(mode)
+        self.vol_pop = self.auto_tip = self._resize_hint = None
         for w in list(self.root.winfo_children()):
             try:
                 w.destroy()
@@ -587,9 +912,17 @@ class App:
         ruler = ctk.CTkFrame(box, fg_color="transparent", height=30)
         ruler.grid(row=0, column=0, sticky="ew", padx=2, pady=(2, 0))
         ruler.grid_columnconfigure(1, weight=1)
-        self.count_lbl = ctk.CTkLabel(ruler, text="NO TRACKS", font=font(11), text_color=MUTED,
-                                      width=HEAD_W - 16, anchor="w")
-        self.count_lbl.grid(row=0, column=0, padx=(14, 2))
+        cnt = ctk.CTkFrame(ruler, fg_color="transparent", width=HEAD_W - 16, height=30)
+        cnt.grid(row=0, column=0, padx=(14, 2))
+        cnt.grid_propagate(False)
+        cnt.grid_columnconfigure(0, weight=1)
+        cnt.grid_rowconfigure(0, weight=1)
+        self.count_lbl = ctk.CTkLabel(cnt, text="NO TRACKS", font=font(11), text_color=MUTED, anchor="w")
+        self.count_lbl.grid(row=0, column=0, sticky="w")
+        self.compact_btn = ctk.CTkButton(cnt, text="", width=28, height=22, corner_radius=6, border_width=1,
+                                         command=self.toggle_compact)
+        self.compact_btn.grid(row=0, column=1, padx=(0, 4))
+        self._style_compact()
         self.ruler = tk.Canvas(ruler, height=30, bg=PANEL, highlightthickness=0, cursor="xterm")
         self.ruler.grid(row=0, column=1, sticky="ew")
         self.ruler.bind("<Configure>", lambda e: self.draw_ruler())
@@ -678,7 +1011,7 @@ class App:
         self.auto_var = tk.BooleanVar(value=False)
         self.auto_chk = ctk.CTkSwitch(top, text="Auto 440", variable=self.auto_var, command=self.on_auto,
                                       font=font(12), text_color=AMBER, switch_width=34, switch_height=18,
-                                      fg_color=SWITCH_OFF, progress_color=GREEN, button_color=SWITCH_KNOB,
+                                      fg_color=SWITCH_OFF, progress_color=AMBER, button_color=SWITCH_KNOB,
                                       button_hover_color=SWITCH_KNOB, width=0)
         self.auto_chk.pack(side="right", padx=(0, 6))
         self.fine_slider = ctk.CTkSlider(fc, from_=-50, to=50, number_of_steps=100, height=18,
@@ -841,11 +1174,145 @@ class App:
             lane.vol.set(round(t.get("volume", 1.0) * 100))
             lane.on_volume(round(t.get("volume", 1.0) * 100))
             track.mute, track.solo = bool(t.get("mute")), bool(t.get("solo"))
+            a = t.get("automation")
+            if isinstance(a, dict) and a.get("points"):
+                try:
+                    lane.set_automation(bool(a.get("on")), [(float(x), float(y)) for x, y in a["points"]])
+                except (TypeError, ValueError):
+                    pass
             self.refresh_lanes()
         self.refresh_all()
         if self.auto and not (self._restore and self.auto_result):
             self.start_analysis()
         self._update_busy()
+
+    # ----- track height (one for all lanes), compact mode -----
+    def set_track_height(self, h, save=False):
+        h = int(max(Lane.H_MIN, min(Lane.H_MAX, round(h))))
+        if h != self.track_h:
+            if self.track_h >= Lane.H_COMPACT and h < Lane.H_COMPACT:
+                self.close_vol_pop()
+            self.track_h = h
+            for lane in self.lanes:
+                lane.set_height(h)
+            self._style_compact()
+        if save:
+            settings.put("track_height", self.track_h)
+            if self.track_h >= Lane.H_COMPACT:
+                self.prev_h = self.track_h
+                settings.put("track_height_prev", self.prev_h)
+
+    def toggle_compact(self):
+        """Smallest height, and back to the previous height."""
+        if self.track_h < Lane.H_COMPACT:
+            prev = self.prev_h if isinstance(self.prev_h, int) and self.prev_h >= Lane.H_COMPACT else Lane.H_DEF
+            self.set_track_height(prev, save=True)
+        else:
+            self.prev_h = self.track_h
+            settings.put("track_height_prev", self.prev_h)
+            self.set_track_height(Lane.H_MIN, save=True)
+
+    def _style_compact(self):
+        if not hasattr(self, "compact_btn"):
+            return
+        on = self.track_h < Lane.H_COMPACT
+        self.compact_btn.configure(image=icon("compact", ACCENT_TXT if on else SOFT, 14),
+                                   fg_color=ACCENT_TINT if on else BTN, border_color=ACCENT if on else BORDER2,
+                                   hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER)
+
+    def resize_start(self, lane, e):
+        self._resize = (e.y_root, self.track_h, lane)
+        self.hide_auto_tip()
+        lane.line.configure(fg_color=ACCENT, height=2)
+        self._show_resize_hint(lane)
+
+    def resize_move(self, e):
+        if not self._resize:
+            return
+        y0, h0, lane = self._resize
+        self.set_track_height(h0 + (e.y_root - y0))
+        self._show_resize_hint(lane)
+
+    def resize_end(self):
+        if not self._resize:
+            return
+        lane = self._resize[2]
+        self._resize = None
+        if lane.frame.winfo_exists():
+            lane.line.configure(fg_color=BORDER, height=1)
+        if self._resize_hint is not None and self._resize_hint.winfo_exists():
+            self._resize_hint.place_forget()
+        self.set_track_height(self.track_h, save=True)
+
+    def _show_resize_hint(self, lane):
+        r = self.root
+        if self._resize_hint is None or not self._resize_hint.winfo_exists():
+            self._resize_hint = ctk.CTkLabel(r, text="", font=font(11, "bold", True), fg_color=ACCENT,
+                                             text_color=ACCENT_TXT, corner_radius=10, height=20)
+        self._resize_hint.configure(text=f"  ↕ {self.track_h} px · all tracks  ")
+        r.update_idletasks()
+        x = lane.line.winfo_rootx() - r.winfo_rootx() + HEAD_W / 2
+        y = lane.line.winfo_rooty() - r.winfo_rooty() - 9
+        self._resize_hint.place(x=x, y=y, anchor="center")
+        self._resize_hint.lift()
+
+    def toggle_vol_pop(self, lane):
+        self.select(lane)
+        same = self.vol_pop is not None and self.vol_pop.lane is lane and self.vol_pop.is_open()
+        self.close_vol_pop()
+        if not same:
+            self.vol_pop = VolumePopover(self, lane)
+            lane.refresh_v()
+
+    def close_vol_pop(self):
+        pop, self.vol_pop = self.vol_pop, None
+        if pop is not None:
+            pop.close()
+            if pop.lane in self.lanes:
+                pop.lane.refresh_v()
+
+    def _click_anywhere(self, e):
+        """Close the volume popover when clicking outside it."""
+        pop = self.vol_pop
+        if pop is None or not pop.is_open():
+            return
+        w = e.widget
+        try:
+            path = str(w)
+        except Exception:
+            return
+        if path.startswith(str(pop.frame)) or path.startswith(str(pop.lane.v_btn)):
+            return
+        self.close_vol_pop()
+
+    def volume_changed(self, lane):
+        pop = self.vol_pop
+        if pop is not None and pop.lane is lane and pop.is_open():
+            pop.lbl.configure(text=f"{round(lane.track.volume * 100)}%")
+
+    def automation_changed(self, lane):
+        """Automation edited or switched: the popover and the window title (unsaved •) follow."""
+        pop = self.vol_pop
+        if pop is not None and pop.lane is lane:
+            self.close_vol_pop()
+        self._update_title()
+
+    def show_auto_tip(self, lane, x, y, text):
+        """Value tip over an automation point: popover background, border in the track colour."""
+        r = self.root
+        if self.auto_tip is None or not self.auto_tip.winfo_exists():
+            self.auto_tip = tk.Label(r, text="", font=(MONO, 9), bg=POPOVER, fg=TEXT, padx=7, pady=2,
+                                     highlightthickness=1, bd=0)
+        tip = self.auto_tip
+        tip.configure(text=text, highlightbackground=lane.color, highlightcolor=lane.color)
+        c = lane.canvas
+        tip.place(x=c.winfo_rootx() - r.winfo_rootx() + x, y=c.winfo_rooty() - r.winfo_rooty() + y - 10,
+                  anchor="s")
+        tip.lift()
+
+    def hide_auto_tip(self):
+        if self.auto_tip is not None and self.auto_tip.winfo_exists():
+            self.auto_tip.place_forget()
 
     # ----- selection, exclusive solo, reordering -----
     def select(self, lane):
@@ -906,6 +1373,9 @@ class App:
         return "break"
 
     def remove_lane(self, lane):
+        if self.vol_pop is not None and self.vol_pop.lane is lane:
+            self.close_vol_pop()
+        self.hide_auto_tip()
         if self.selected is lane:
             self.selected = None
         self.player.remove(lane.track)
@@ -916,6 +1386,8 @@ class App:
             self.start_analysis()
 
     def clear_all(self):
+        self.close_vol_pop()
+        self.hide_auto_tip()
         self.player.clear()
         self.selected = None
         for lane in self.lanes:
@@ -1407,7 +1879,10 @@ class App:
         r = self.player.region
         return {
             "tracks": [{"file": str(l.track.path), "name": l.track.label, "volume": round(l.track.volume, 3),
-                        "mute": l.track.mute, "solo": l.track.solo} for l in self.lanes],
+                        "mute": l.track.mute, "solo": l.track.solo,
+                        **({"automation": {"on": l.track.auto_on,
+                                           "points": [[round(t, 3), round(v, 4)] for t, v in l.track.auto_pts]}}
+                           if l.track.auto_pts else {})} for l in self.lanes],
             "speed": self.speed, "pitch": self.semis, "fine": self.manual_cents,
             "auto440": self.auto, "auto440_result": list(self.auto_result) if self.auto_result else None,
             "loop": {"on": self.player.loop, "start": r and round(r[0] / engine.SR, 3),
@@ -1462,6 +1937,18 @@ class App:
         self.project_path = str(path) if path else None
         self._saved_sig = sig or project.signature(self.project_state())
         self._update_title()
+
+    def main_folder(self):
+        """The song's main folder, if there is one: the open project's folder, or for tracks in
+        '<Song>/<Song> stems/' (a YouTube import) the '<Song>' folder. Exports go there automatically."""
+        if self.project_path:
+            return str(Path(self.project_path).parent)
+        dirs = {Path(l.track.path).resolve().parent for l in self.lanes if getattr(l.track, "path", None)}
+        if len(dirs) == 1:
+            d = dirs.pop()
+            if d.name.lower().endswith(" stems") and d.parent.name and d.name.lower().startswith(d.parent.name.lower()):
+                return str(d.parent)
+        return None
 
     def _update_title(self):
         if self.project_path:
@@ -1590,7 +2077,8 @@ class ExportDialog:
         win.geometry("+%d+%d" % (app.root.winfo_rootx() + 360, app.root.winfo_rooty() + 90))
 
         lanes = app.lanes
-        self.folder = settings.export_folder()
+        self.main = app.main_folder()        # exports go to the song's main folder when there is one
+        self.folder = self.main or settings.export_folder()
         gains = app.player.gains()
         self.tags = engine.tags(app.speed, app.semis, app.current_cents(), app.auto)
         self.region = app.player.active_region()
@@ -1636,6 +2124,9 @@ class ExportDialog:
             items.append(("Auto 440", "amber"))
         elif not app.auto and round(app.manual_cents):
             items.append((f"Fine {app.manual_cents:+.0f} ct".replace("-", "−"), True))
+        autos = [l.track.label for l, g in zip(lanes, gains) if g > 0 and l.track.automation_active()]
+        if autos:
+            items.append(("Automation: " + ", ".join(autos), "green"))
         for lane, g in zip(lanes, gains):
             if lane.track.mute:
                 items.append((f"{lane.track.label} muted", False))
@@ -1647,8 +2138,8 @@ class ExportDialog:
         if not items:
             items.append(("No changes – a plain mix", False))
         for text, strong in items:
-            bg, fg = ((AMBER_BADGE, AMBER) if strong == "amber" else (CHIP_ACCENT, CHIP_ACCENT_TXT) if strong
-                      else (CHIP, BTN_TXT))
+            bg, fg = ((AMBER_BADGE, AMBER) if strong == "amber" else (GREEN_BG, GREEN_TXT) if strong == "green"
+                      else (CHIP_ACCENT, CHIP_ACCENT_TXT) if strong else (CHIP, BTN_TXT))
             ctk.CTkLabel(chips, text=f"  {text}  ", font=font(12, mono=True), corner_radius=12, height=26,
                          fg_color=bg, text_color=fg).pack(side="left", padx=(0, 6))
         if self.region:
@@ -1711,7 +2202,7 @@ class ExportDialog:
             self.name_title.configure(text="FILE NAME")
             self.name_hint.pack_forget()
             self.name_entry.pack(fill="x", after=self.name_title)
-            self.loc_lbl.configure(text=f"Saves to: {self._short(self.folder)}   ({ext})")
+            self.loc_lbl.configure(text=f"Saves to: {self._short(self.folder)}{self._where()}   ({ext})")
         else:
             self.name_entry.pack_forget()
             self.name_title.configure(text="FILE NAMES")
@@ -1719,7 +2210,10 @@ class ExportDialog:
             self.name_hint.configure(text="Named after the original files, e.g. "
                                           + engine.safe_filename("_".join([first] + self.tags)) + ext)
             self.name_hint.pack(fill="x", after=self.name_title)
-            self.loc_lbl.configure(text=f"Saves to: {self._short(self.folder)}")
+            self.loc_lbl.configure(text=f"Saves to: {self._short(self.folder)}{self._where()}")
+
+    def _where(self):
+        return "   (song folder)" if self.main and self.folder == self.main else ""
 
     @staticmethod
     def _short(path, n=46):
@@ -1729,7 +2223,8 @@ class ExportDialog:
         d = filedialog.askdirectory(parent=self.win, initialdir=self.folder, title="Export to folder")
         if d:
             self.folder = d
-            settings.set_export_folder(d)   # becomes the default export folder
+            if not self.main:
+                settings.set_export_folder(d)   # becomes the default export folder
             self.refresh()
 
     def start(self):

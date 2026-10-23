@@ -172,6 +172,12 @@ def icon(name, color, size=16):
     elif name == "pencil":
         d.line([(S * .24, S * .76), (S * .74, S * .26)], fill=color, width=w + 2)
         d.polygon([(S * .12, S * .88), (S * .18, S * .66), (S * .34, S * .82)], fill=color)
+    elif name == "compact":       # two lines with arrows squeezing in (as in the design)
+        u = S / 24
+        for a, b in (((4, 9), (20, 9)), ((4, 15), (20, 15))):
+            d.line([(a[0] * u, a[1] * u), (b[0] * u, b[1] * u)], fill=color, width=w)
+        d.line([(9 * u, 4 * u), (12 * u, 7 * u), (15 * u, 4 * u)], fill=color, width=w, joint="curve")
+        d.line([(9 * u, 20 * u), (12 * u, 17 * u), (15 * u, 20 * u)], fill=color, width=w, joint="curve")
     elif name == "close":
         d.line([(S * .24, S * .24), (S * .76, S * .76)], fill=color, width=w)
         d.line([(S * .76, S * .24), (S * .24, S * .76)], fill=color, width=w)
