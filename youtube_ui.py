@@ -44,7 +44,8 @@ class YouTubeJob:
         out, tune = splitter.effective(opts, os.path.isfile(source))
         if splitter.model_for(opts, os.path.isfile(source)):
             self.steps.append("split")
-        if any(tune["stems" if k == "stems6" else k] for k, on in out.items() if on):
+        if tune["original"] or any(tune["stems" if k == "stems6" else k] for k, on in out.items()
+                                   if on and k != "original"):
             self.steps.append("tune")
         if len(self.steps) > 1:
             self.steps.append("save")
@@ -104,7 +105,7 @@ class YouTubePopover:
         self.info = None
         self.info_gen = 0
         self._info_job = None
-        self.frame = ctk.CTkFrame(self.root, fg_color=POPOVER, border_color=BORDER_POP, border_width=1,
+        self.frame = ctk.CTkFrame(self.root, fg_color=WAVE, border_color=BORDER_POP, border_width=1,
                                   corner_radius=14, width=self.W)
         head = ctk.CTkFrame(self.frame, fg_color="transparent")
         head.pack(fill="x", padx=20, pady=(14, 6))
@@ -244,44 +245,12 @@ class YouTubePopover:
         ctk.CTkLabel(p, text="The song folder, with its project file, is created here.", font=font(12),
                      text_color=DIM, anchor="w", height=18).pack(fill="x", pady=(4, 0))
 
-        # what to make: any mix; Stems and Stems ×6 exclude each other
+        # what to make: Original, Karaoke, 4 or 6 stems; each with its own Auto 440 (see split_choices)
         self.make_title = self.section(p, "DOWNLOAD")
-        tiles = ctk.CTkFrame(p, fg_color="transparent")
-        tiles.pack(fill="x")
-        for i in range(4):
-            tiles.grid_columnconfigure(i, weight=1, uniform="tile")
-        self.tiles = {}
-        for col, key, title in ((0, "original", "Original"), (1, "karaoke", "Karaoke"), (2, "stems", "Stems"),
-                                (3, "stems6", "Stems ×6")):
-            b = ctk.CTkButton(tiles, text="", height=52, corner_radius=8, border_width=1, anchor="w",
-                              compound="left", font=font(13, "bold"), command=lambda k=key: self.toggle(k))
-            b.grid(row=0, column=col, sticky="nsew", padx=(0, 6))
-            self.tiles[key] = (b, title)
-        self.cog = ctk.CTkButton(tiles, text="", image=icon("cog", SOFT, 18), width=40, height=52,
-                                 corner_radius=8, fg_color=BTN, hover_color=BTN_HOVER, border_width=1,
-                                 border_color=BORDER2, command=lambda: self.show("suffixes"))
-        self.cog.grid(row=0, column=4, sticky="ns")
-        self.tiles_anchor = tiles
-
-        # Auto 440: one button per selected download
-        self.tune_row = ctk.CTkFrame(p, fg_color="transparent")
-        self.tune_row.pack(fill="x", pady=(10, 0))
-        head = ctk.CTkFrame(self.tune_row, fg_color="transparent", width=108, height=30)
-        head.pack(side="left")
-        head.pack_propagate(False)
-        ctk.CTkLabel(head, text="Auto 440", font=font(13, "bold"), text_color=AMBER).pack(side="left")
-        ctk.CTkLabel(head, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color=AMBER_BADGE,
-                     corner_radius=4, height=16).pack(side="left", padx=(6, 0))
-        self.tune_btns = {}
-        for key, title in (("original", "Original"), ("karaoke", "Karaoke"), ("stems", "Stems"),
-                           ("stems6", "Stems ×6")):
-            b = ctk.CTkButton(self.tune_row, text=" " + title, height=30, corner_radius=8, border_width=1,
-                              font=font(12, "bold"), width=40 + 8 * len(title), compound="left",
-                              command=lambda k=key: self.toggle_tune(k))
-            self.tune_btns[key] = b
-        self.tune_note = ctk.CTkLabel(p, text="", font=font(12), text_color=DIM, anchor="w", justify="left",
-                                      wraplength=self.W - 170)
-        self.tune_note.pack(fill="x", padx=(108, 0), pady=(4, 0))
+        import split_choices
+        self.choices = split_choices.ChoiceRow(p, on_toggle=self.toggle, on_tune=self.toggle_tune,
+                                               on_cog=lambda: self.show("suffixes"), bg=WAVE)
+        self.choices.pack(fill="x")
 
         prev = ctk.CTkFrame(p, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=10)
         prev.pack(fill="x", pady=(12, 0))
@@ -359,38 +328,8 @@ class YouTubePopover:
             self.yt_row.pack(fill="x", after=self.src_anchor)
         self.thumb.configure(image=icon("wave" if is_file else "youtube", DIM, 30 if not is_file else 26))
         out, tune = splitter.effective(self.s, is_file)
-        for key, (b, title) in self.tiles.items():
-            on = out[key]
-            locked = key == "original" and not is_file
-            note = {"original": "a copy" if is_file else "always kept", "karaoke": "MP3 320",
-                    "stems": "4 tracks", "stems6": "6 tracks"}[key]
-            b.configure(text=f" {title}\n {note}", image=icon("box_on" if on else "box_off",
-                                                              (MUTED if locked else ACCENT) if on else CONTROL, 14),
-                        fg_color=PANEL if locked else ACCENT_TINT if on else PANEL,
-                        hover_color=PANEL if locked else ACCENT_TINT_HOVER if on else BTN_HOVER,
-                        border_color=CONTROL2 if locked else ACCENT if on else BORDER2,
-                        text_color=SOFT if locked else TEXT if on else SOFT)
-        for key, b in self.tune_btns.items():
-            b.pack_forget()
-        sel = [k for k in ("original", "karaoke", "stems", "stems6") if out[k]]
-        for key in sel:
-            b = self.tune_btns[key]
-            t_on = tune["stems" if key == "stems6" else key]
-            locked = key == "original" and not is_file
-            b.configure(fg_color=AMBER_BG if t_on else BTN, border_color=AMBER_BORDER if locked else AMBER if t_on else BORDER2,
-                        text_color=AMBER if t_on else SOFT, hover_color=AMBER_BG if t_on else BTN_HOVER,
-                        image=icon("dot", AMBER if t_on else CONTROL, 9))
-            b.pack(side="left", padx=(0, 6))
-        if sel:
-            self.tune_row.pack(fill="x", pady=(10, 0), after=self.tiles_anchor)
-            note = ("The original and its Auto440 copy are always kept." if not is_file else
-                    "The original stays untouched; a tuned copy is saved next to it."
-                    if out["original"] and tune["original"] else "Lit = saved in tune (A = 440 Hz).")
-            self.tune_note.configure(text=note)
-            self.tune_note.pack(fill="x", padx=(108, 0), pady=(4, 0), after=self.tune_row)
-        else:
-            self.tune_row.pack_forget()
-            self.tune_note.pack_forget()
+        self.choices.set_state(is_file, out, tune)
+        sel = [k for k in ("original", "karaoke", "stems", "stems6") if out[k]] + (["tuned"] if tune["original"] else [])
         self.make_title.configure(text="MAKE" if is_file else "DOWNLOAD")
         self.go.configure(text="SPLIT" if is_file else "DOWNLOAD", state="normal" if sel else "disabled",
                           fg_color=ACCENT if sel else CONTROL)
@@ -451,8 +390,6 @@ class YouTubePopover:
         self.refresh_setup()
 
     def toggle_tune(self, key):
-        if key == "original" and self.source() != "file":
-            return                                  # YouTube always keeps the Auto440 copy too
         k = "stems" if key == "stems6" else key
         self.s["tune"][k] = not self.s["tune"][k]
         self.save()

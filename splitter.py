@@ -92,13 +92,13 @@ def location(opts):
 
 
 def effective(opts, local):
-    """(outputs, tune flags) as they will really be used. YouTube always keeps the original and
-    its Auto440 copy; Stems and Stems x6 exclude each other."""
+    """(outputs, tune flags) as they will really be used. YouTube always keeps the original;
+    the Auto440 copy of the original is made whenever its switch is on (also without the copy, for a
+    file); Stems and Stems x6 exclude each other."""
     out = dict(opts["out"])
     tune = dict(opts["tune"])
     if not local:
         out["original"] = True
-        tune["original"] = True
     if out.get("stems6"):
         out["stems"] = False
     return out, tune
@@ -137,8 +137,8 @@ def plan(name, opts, orig_ext=".opus", local=False, tuned=True):
     items = []
     if out["original"]:
         items.append(("original", _n(name, sfx["original"]) + orig_ext, "Original"))
-        if tuned and tune["original"]:
-            items.append(("tuned", _n(name, sfx["tune"]) + ext, LABELS["tuned"]))
+    if tuned and tune["original"]:
+        items.append(("tuned", _n(name, sfx["tune"]) + ext, LABELS["tuned"]))
     if out["karaoke"]:
         items.append(("karaoke", _n(name, sfx["karaoke"], T("karaoke")) + ".mp3", "Karaoke"))
     keys = SIX if out["stems6"] else FOUR if out["stems"] else []
@@ -368,7 +368,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
     opts = copy.deepcopy(opts)
     local = os.path.isfile(source)
     out, tune = effective(opts, local)
-    if not any(out.values()):
+    if not any(out.values()) and not tune["original"]:
         raise RuntimeError("Choose what to make first.")
     root = Path(location(opts))
     sfx = opts["suffixes"]
@@ -404,9 +404,9 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
         check_cancel()
 
         model = model_for(opts, local)
-        want_tune = any(tune.get(k) for k, on in out.items() if on and k != "stems6") or \
-            (out["stems6"] and tune.get("stems"))
-        need_audio = model or (out["original"] and tune["original"])
+        want_tune = tune["original"] or any(tune.get(k) for k, on in out.items() if on and k in ("karaoke", "stems")) \
+            or (out["stems6"] and tune.get("stems"))
+        need_audio = model or tune["original"]
         audio = engine.decode(orig) if need_audio else None
 
         # 2. AI split (one run: the best model for the choice)
@@ -422,7 +422,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
             outputs[k] = sep.get(k, np.zeros_like(audio))
         if out["karaoke"]:
             outputs["karaoke"] = sum(v for k, v in sep.items() if k != "vocals")
-        if out["original"] and tune["original"]:
+        if tune["original"]:
             outputs["tuned"] = audio
 
         # 3. Auto 440 (measured on the tonal parts when we have them)

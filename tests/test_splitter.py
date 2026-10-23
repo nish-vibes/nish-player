@@ -68,8 +68,13 @@ def main():
         "A KARAOKE.mp3", "Separated Stems - A/A VOX Auto440.wav", "Separated Stems - A/A DRM Auto440.wav",
         "Separated Stems - A/A BASS Auto440.wav", "Separated Stems - A/A MISC Auto440.wav"]
     assert splitter.model_for(o2, local=True) == "htdemucs_ft"
-    # YouTube always keeps the original and its Auto440 copy, even when unticked
-    assert [r for _, r, _ in splitter.plan("A", o2, ".opus")][:2] == ["A Original.opus", "A Auto440.wav"]
+    # YouTube always keeps the original; its Auto440 copy only when that switch is on
+    yt = [r for _, r, _ in splitter.plan("A", o2, ".opus")]
+    assert yt[0] == "A Original.opus" and "A Auto440.wav" not in yt, yt
+    o2b = dict(o2, tune=dict(o2["tune"], original=True))
+    assert [r for _, r, _ in splitter.plan("A", o2b, ".opus")][:2] == ["A Original.opus", "A Auto440.wav"]
+    # a file: the Auto440 version without copying the original
+    assert [r for _, r, _ in splitter.plan("A", o2b, ".wav", local=True)][0] == "A Auto440.wav"
     assert splitter.workspace_keys(o) == splitter.SIX and splitter.workspace_keys(o2) == splitter.FOUR
     assert splitter.sanitize('a/b:c?*"d".  ') == "abcd"
     ok("file plan, names, models (best for each choice), YouTube keeps the original")
@@ -131,7 +136,15 @@ def main():
         raise AssertionError("nothing chosen should be refused")
     except RuntimeError:
         pass
-    ok("karaoke only (MP3, original not copied), original only, nothing chosen is refused")
+    o5 = splitter.default_settings()
+    o5["out"] = {"original": False, "karaoke": False, "stems": False, "stems6": False}
+    o5["tune"] = {"original": True, "karaoke": False, "stems": False}
+    o5["out_root"] = str(tmp / "out5")
+    res = splitter.run(str(src), "Tuned", o5, separator=None)
+    assert sorted(p.name for p in (tmp / "out5" / "Tuned").iterdir()) == ["Tuned Auto440.flac", "~Tuned.nish"], \
+        sorted(p.name for p in (tmp / "out5" / "Tuned").iterdir())
+    assert res["load"][0][1] == "Original 440 Hz"
+    ok("karaoke only (MP3, original not copied), original only, only the Auto440 version, nothing chosen refused")
 
     # cancel
     def cancel():

@@ -32,7 +32,12 @@ PALETTE = {
     "ACCENT_BAND": ("#26365a", "#d7e0ff"), "CHIP_ACCENT": ("#222a40", "#e3e9ff"),
     "CHIP_ACCENT_TXT": ("#b8c7ff", "#2e49b0"), "CHIP": ("#2a2e34", "#eceef2"),
     "BAND_ON": ("#2a3a60", "#c9d6ff"), "BAND_OFF": ("#2a2f37", "#dfe2e8"),
-    "PLAYHEAD": ("#ffffff", "#14171c"),
+    "PLAYHEAD": ("#ffffff", "#14171c"), "ACCENT_TRACK": ("#2c3550", "#d6defa"),
+    # quieter surfaces: waveform area, dialogs and the playback panel (its cards stay PANEL)
+    "WAVE": ("#15181c", "#f1f3f6"), "DECK": ("#15181c", "#eceef2"),
+    # Auto 440: warning orange, the switch, the lamp
+    "WARN": ("#e8c45a", "#d28208"), "WARN_KNOB": ("#eef0f3", "#d28208"), "WARN_TRACK": ("#e8c45a", "#f3c27a"),
+    "LAMP": ("#ffd25a", "#ffb21e"),
     # Auto 440 green
     "GREEN": ("#5fd0a4", "#1f9a6d"), "GREEN_TXT": ("#9fe3c6", "#126b4b"), "GREEN_BG": ("#14211c", "#e9f7f0"),
     "GREEN_BORDER": ("#2f6b55", "#93d5b8"), "GREEN_TRACK": ("#23362e", "#cbeadc"),
@@ -219,6 +224,12 @@ def icon(name, color, size=16):
         d.line([(10 * u, 17.5 * u), (10 * u, 11.5 * u), (15 * u, 10.5 * u), (15 * u, 16.5 * u)], fill=color, width=w)
         d.ellipse([7.7 * u, 16.2 * u, 10.3 * u, 18.8 * u], fill=color)
         d.ellipse([12.7 * u, 15.2 * u, 15.3 * u, 17.8 * u], fill=color)
+    elif name == "fork":          # tuning fork (on the Auto 440 switch knob)
+        u = S / 24
+        d.line([(8 * u, 2 * u), (8 * u, 9 * u)], fill=color, width=w + 1)
+        d.line([(16 * u, 2 * u), (16 * u, 9 * u)], fill=color, width=w + 1)
+        d.arc([8 * u, 5 * u, 16 * u, 13 * u], 0, 180, fill=color, width=w + 1)
+        d.line([(12 * u, 13 * u), (12 * u, 22 * u)], fill=color, width=w + 1)
     elif name == "folder":
         u = S / 24
         d.line([(3 * u, 7 * u), (3 * u, 19 * u), (21 * u, 19 * u), (21 * u, 8.5 * u), (11.5 * u, 8.5 * u),
@@ -280,6 +291,36 @@ class ToolButton(ctk.CTkButton):
 
 
 # ---------------------------------------------------------------------------
+
+
+_PHOTOS = {}
+
+
+def photo(name, color, size=16):
+    """An icon as a Tk PhotoImage (for drawing on a canvas)."""
+    key = (name, color, size, MODE)
+    if key not in _PHOTOS:
+        from PIL import ImageTk
+        img = icon(name, color, size)._light_image.resize((size, size))
+        _PHOTOS[key] = ImageTk.PhotoImage(img)
+    return _PHOTOS[key]
+
+
+def striped(w, h, c1, c2, radius=8, step=6):
+    """Diagonal stripes in a rounded rectangle (the YouTube 'always kept' original)."""
+    key = ("stripes", w, h, c1, c2, radius, MODE)
+    if key not in _PHOTOS:
+        from PIL import Image, ImageDraw, ImageTk
+        S = 3
+        img = Image.new("RGBA", (w * S, h * S), c1)
+        d = ImageDraw.Draw(img)
+        for x in range(-h * S, w * S + h * S, step * 2 * S):
+            d.polygon([(x, h * S), (x + step * S, h * S), (x + step * S + h * S, 0), (x + h * S, 0)], fill=c2)
+        mask = Image.new("L", (w * S, h * S), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, w * S - 1, h * S - 1], radius=radius * S, fill=255)
+        img.putalpha(mask)
+        _PHOTOS[key] = ImageTk.PhotoImage(img.resize((w, h)))
+    return _PHOTOS[key]
 
 
 def no_image(label):

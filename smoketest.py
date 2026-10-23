@@ -742,14 +742,27 @@ def run(app, out_dir):
         app.open_youtube()
         yield 0.5
         pop = app.yt_pop
-        assert pop.is_open() and app.yt_btn.cget("text") == "Split…"
+        assert pop.is_open() and app.yt_btn.cget("text") == "Split"
         assert pop.title.cget("text") == "Split song"
+        ch = pop.choices
+        E = lambda **k: type("E", (), {"x": 0, "y": 0, **k})()
+
+        def texts():
+            return [ch.itemcget(i, "text") for i in ch.find_all() if ch.type(i) == "text"]
+
+        def click(*action):          # click the middle of a drawn choice, tab or button
+            for x0, y0, x1, y1, act in ch.hits:
+                if act == action:
+                    ch._click(E(x=(x0 + x1) / 2, y=(y0 + y1) / 2))
+                    return
+            raise AssertionError(f"{action} not on the choice row: {[h[4] for h in ch.hits]}")
         pop.set_source("youtube")
-        yield 0.2
+        yield 0.3
         assert pop.yt_row.winfo_ismapped() and not pop.file_row.winfo_ismapped()
-        assert pop.go.cget("text") == "DOWNLOAD" and "always kept" in pop.tiles["original"][0].cget("text")
-        pop.toggle("original")                      # YouTube: the original can't be unticked
+        assert pop.go.cget("text") == "DOWNLOAD" and "always kept" in texts(), texts()
+        assert ("toggle", "original") not in [h[4] for h in ch.hits]     # YouTube: the original can't be unticked
         assert splitter.effective(pop.s, False)[0]["original"]
+        shot("3a-split-youtube")
         pop.set_source("file")                      # Split a file on this computer
         yield 0.2
         assert pop.file_row.winfo_ismapped() and not pop.yt_row.winfo_ismapped() and pop.drop_tip.winfo_ismapped()
@@ -763,20 +776,28 @@ def run(app, out_dir):
         pop.s.update(out_root=str(out / "yt"))
         pop.s["out"] = {"original": True, "karaoke": True, "stems": True, "stems6": False}
         pop.s["tune"] = {"original": True, "karaoke": True, "stems": True}
-        pop.toggle("stems6")                        # Stems ×6 replaces Stems
-        assert pop.s["out"]["stems6"] and not pop.s["out"]["stems"]
         pop.ws_var.set(True)
         pop.refresh_setup()
-        assert pop.go.cget("text") == "SPLIT" and "a copy" in pop.tiles["original"][0].cget("text")
-        shown = [k for k, b in pop.tune_btns.items() if b.winfo_ismapped()]
         yield 0.2
-        shown = [k for k, b in pop.tune_btns.items() if b.winfo_ismapped()]
-        assert shown == ["original", "karaoke", "stems6"], shown          # one Auto 440 button per download
-        pop.toggle_tune("karaoke")
+        click("toggle", "stems6")                   # 6 Stems replaces 4 Stems
+        assert pop.s["out"]["stems6"] and not pop.s["out"]["stems"]
+        assert pop.go.cget("text") == "SPLIT" and any(t.startswith("copy \u2192") for t in texts()), texts()
+        tabs = [h[4][1] for h in ch.hits if h[4][0] == "tune"]
+        assert sorted(tabs) == ["karaoke", "original", "stems"], tabs   # an Auto 440 for each choice
+        click("tune", "karaoke")
         assert not pop.s["tune"]["karaoke"]
-        pop.toggle_tune("karaoke")
+        click("tune", "karaoke")
+        click("toggle", "original")                 # a file: Auto440 version without copying the original
+        assert not pop.s["out"]["original"] and pop.s["tune"]["original"]
+        assert "Smoke Song Auto440.flac" in pop.preview.cget("text") and "Original.wav" not in pop.preview.cget("text")
+        click("toggle", "original")
         assert "Desktop" not in splitter.location(pop.s) and pop.loc_lbl.cget("text").strip().endswith("yt")
-        pop.cog.invoke()
+        click("cog")
+        yield 0.3
+        assert pop.suf.winfo_ismapped()
+        pop.show("setup")
+        yield 0.2
+        click("cog")
         yield 0.3
         assert pop.suf.winfo_ismapped()
         pop.suf_vars["karaoke"].set("KARAOKE")
@@ -810,7 +831,7 @@ def run(app, out_dir):
         shot("3b-youtube-working")
         pop.close()
         yield 0.4
-        assert app.yt_btn.cget("text") != "Split…", app.yt_btn.cget("text")
+        assert app.yt_btn.cget("text") != "Split", app.yt_btn.cget("text")
         assert "YouTube" not in app.status.cget("text"), app.status.cget("text")
         log(f"ok: popover closed, header button spins: '{app.yt_btn.cget('text')}'")
         app.open_youtube()
@@ -850,7 +871,7 @@ def run(app, out_dir):
         log("ok: stems added to the workspace in order")
         assert app.yt_btn.cget("text") == "Done"
         t0 = time.time()
-        while app.yt_btn.cget("text") != "Split…":
+        while app.yt_btn.cget("text") != "Split":
             assert time.time() - t0 < 10, "button did not go back to normal"
             yield 0.3
         log("ok: header button shows Done, then returns to normal")
