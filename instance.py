@@ -8,7 +8,6 @@
   copy on a USB stick) always points to the right place.
 """
 import json
-import os
 import socket
 import sys
 import threading

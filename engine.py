@@ -23,7 +23,8 @@ BIN_DIR = BASE_DIR / "bin"
 if BIN_DIR.is_dir():
     os.environ["PATH"] = str(BIN_DIR) + os.pathsep + os.environ.get("PATH", "")
 
-DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / "NiSH Player"
+APP_NAME = "NiSH Player"
+DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share") / APP_NAME
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LABELS_FILE = DATA_DIR / "labels.json"
 

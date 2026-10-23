@@ -12,7 +12,6 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 import splitter
-import theme
 
 
 def engine_exts():

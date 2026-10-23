@@ -62,7 +62,6 @@ TRACK_PAIRS = [   # (strong, soft) per lane, as (dark, light)
     (("#b48cf2", "#7a52d6"), ("#45385e", "#dccdf7")), (("#e08a7b", "#c65a47"), ("#553530", "#f5cfc8")),
 ]
 MODE = "dark"
-STAR_MODULES = ("__main__", "app", "youtube_ui", "settings_menu", "project_ui", "smoketest")
 
 
 def _values(mode):
@@ -80,9 +79,9 @@ def set_mode(mode):
     vals = _values(MODE)
     g = globals()
     g.update(vals)
-    for name in STAR_MODULES:
-        mod = sys.modules.get(name)
-        if mod is not None:
+    for mod in list(sys.modules.values()):
+        # Modules that did `from theme import *` hold their own copies of the names; refresh them too.
+        if mod is not None and getattr(mod, "font", None) is font and mod.__name__ != __name__:
             for k, v in vals.items():
                 if hasattr(mod, k):
                     setattr(mod, k, v)

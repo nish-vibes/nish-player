@@ -1,10 +1,14 @@
-"""The ▾ list under Open…: the projects you saved or opened most recently."""
+"""Projects in the main window: open / save / recent list (the ▾ under Open…) and the window title."""
 import os
+import traceback
 from pathlib import Path
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+import engine
 import project
+from engine import APP_NAME
 from theme import *  # noqa: F401,F403
 
 
@@ -76,3 +80,156 @@ class RecentMenu:
     def close(self):
         if self.frame.winfo_exists():
             self.frame.place_forget()
+
+
+class ProjectMixin:
+    """Open / save projects and the window title (part of App)."""
+
+    # ----- projects -----
+    def project_state(self):
+        r = self.player.region
+        return {
+            "tracks": [{"file": str(l.track.path), "name": l.track.label, "volume": round(l.track.volume, 3),
+                        "mute": l.track.mute, "solo": l.track.solo,
+                        **({"automation": {"on": l.track.auto_on,
+                                           "points": [[round(t, 3), round(v, 4)] for t, v in l.track.auto_pts]}}
+                           if l.track.auto_pts else {})} for l in self.lanes],
+            "speed": self.speed, "pitch": self.semis, "fine": self.manual_cents,
+            "auto440": self.auto, "auto440_result": list(self.auto_result) if self.auto_result else None,
+            "loop": {"on": self.player.loop, "start": r and round(r[0] / engine.SR, 3),
+                     "end": r and round(r[1] / engine.SR, 3), "fade": self.player.loop_fade},
+            "master": round(self.fader.pos, 4),
+        }
+
+    def is_dirty(self):
+        return bool(self.project_path) and project.signature(self.project_state()) != self._saved_sig
+
+    def ask_save_changes(self):
+        """True = save, False = don't save, None = cancel."""
+        return messagebox.askyesnocancel(APP_NAME, f"Save changes to {Path(self.project_path).stem}?",
+                                         parent=self.root)
+
+    def confirm_discard(self):
+        """Before closing or replacing the workspace. False = the user cancelled."""
+        if not self.is_dirty():
+            return True
+        ans = self.ask_save_changes()
+        if ans is None:
+            return False
+        if ans:
+            return self.save_project()
+        return True
+
+    def save_project(self, save_as=False):
+        if not self.lanes:
+            self.flash("Add some audio first.")
+            return False
+        path = self.project_path
+        if save_as or not path:
+            first = Path(self.lanes[0].track.path)
+            path = filedialog.asksaveasfilename(
+                parent=self.root, title="Save project", defaultextension=project.EXT,
+                initialdir=str(Path(path).parent if path else first.parent),
+                initialfile=engine.safe_filename(engine.song_name([l.track.path for l in self.lanes])) + project.EXT,
+                filetypes=[("NiSH Player project", "*" + project.EXT)])
+            if not path:
+                return False
+        try:
+            path = project.save(path, self.project_state())
+        except Exception as e:
+            traceback.print_exc()
+            self.show_alert("Save project", f"The project couldn't be saved:\n{e}")
+            return False
+        self._set_project(path)
+        self.flash(f"Saved {path.name}")
+        return True
+
+    def _set_project(self, path, sig=None):
+        self.project_path = str(path) if path else None
+        self._saved_sig = sig or project.signature(self.project_state())
+        self._update_title()
+
+    def main_folder(self):
+        """The song's main folder, if there is one: the open project's folder, or for tracks in
+        '<Song>/<Song> stems/' (a YouTube import) the '<Song>' folder. Exports go there automatically."""
+        if self.project_path:
+            return str(Path(self.project_path).parent)
+        dirs = {Path(l.track.path).resolve().parent for l in self.lanes if getattr(l.track, "path", None)}
+        if len(dirs) == 1:
+            d = dirs.pop()
+            if d.name.lower().endswith(" stems") and d.parent.name and d.name.lower().startswith(d.parent.name.lower()):
+                return str(d.parent)
+        return None
+
+    def _update_title(self):
+        if self.project_path:
+            dot = " •" if self.is_dirty() else ""
+            self.root.title(f"{Path(self.project_path).stem}{dot} – {APP_NAME}")
+        else:
+            self.root.title(APP_NAME)
+
+    def open_project(self, path):
+        if not self.confirm_discard():
+            return
+        try:
+            state, missing = project.load(path)
+        except Exception as e:
+            traceback.print_exc()
+            self.show_alert("Open project", f"{Path(path).name} couldn't be opened.\n{e}")
+            return
+        self.clear_all()
+        self.project_path = None
+        # settings first, tracks load in the background and pick up their own settings
+        self.speed_slider.set(state.get("speed", 1.0))
+        self.on_speed(state.get("speed", 1.0))
+        self.pitch_slider.set(state.get("pitch", 0))
+        self.on_pitch(state.get("pitch", 0))
+        self.manual_cents = round(float(state.get("fine", 0)))
+        res = state.get("auto440_result")
+        self.auto_result = tuple(res) if res else None
+        self.auto = bool(state.get("auto440"))
+        self.auto_var.set(self.auto)
+        self.fine_slider.configure(state="normal")
+        self.fine_slider.set(self.current_cents())
+        self._style_fine()
+        if state.get("master") is not None:
+            self.fader.set_pos(state["master"])
+        loop = state.get("loop") or {}
+        fade = float(loop.get("fade", engine.LOOP_FADE))
+        self.fade_slider.set(fade)
+        self.on_fade(fade)
+        self.player.loop = bool(loop.get("on"))
+        self._style_loop()
+        self._live(0)
+        tracks = state.get("tracks", [])
+        self._restore = {"tracks": {str(Path(t["file"]).resolve()): t for t in tracks},
+                         "loop": loop, "path": str(path)}
+        if missing:
+            self.show_alert("Open project", "These tracks couldn't be found and were left out:\n"
+                            + "\n".join("• " + m for m in missing[:12]))
+        if tracks:
+            self.add_files([t["file"] for t in tracks], names={t["file"]: t.get("name") for t in tracks},
+                           prefer_names=True)
+        else:
+            self._finish_restore()
+
+    def _finish_restore(self):
+        """All tracks of an opened project are in: the loop area, then 'nothing changed yet'."""
+        r = self._restore
+        if not r:
+            return
+        self._restore = None
+        loop = r.get("loop") or {}
+        if loop.get("start") is not None and loop.get("end") is not None:
+            self.player.set_region(loop["start"] * engine.SR, loop["end"] * engine.SR)
+            self.refresh_region()
+        self.refresh_lanes()
+        self._set_project(r["path"])
+
+    def open_recent(self):
+        if self.recent_pop is not None and self.recent_pop.frame.winfo_exists() and self.recent_pop.is_open():
+            self.recent_pop.close()
+            return
+        if self.recent_pop is not None and self.recent_pop.frame.winfo_exists():
+            self.recent_pop.frame.destroy()
+        self.recent_pop = RecentMenu(self, self.open_btn)

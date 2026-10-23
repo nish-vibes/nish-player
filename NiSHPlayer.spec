@@ -5,7 +5,8 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 
 datas, binaries, hiddenimports = [], [], ["smoketest", "youtube_ui", "splitter", "theme",
                                                   "settings", "settings_menu", "updater", "project", "project_ui",
-                                                  "instance", "split_choices"]
+                                                  "instance", "split_choices",
+                                                  "lane", "widgets", "layout", "tracks", "speed_pitch", "export_dialog"]
 # AI separation (Demucs) and YouTube (yt-dlp + its JS challenge solver)
 datas += collect_data_files("demucs")
 hiddenimports += collect_submodules("demucs")
