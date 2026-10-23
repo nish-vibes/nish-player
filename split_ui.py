@@ -13,6 +13,7 @@ import customtkinter as ctk
 
 import engine
 import splitter
+from widgets import EntryHint
 from theme import *  # noqa: F401,F403  (colours follow the light/dark theme)
 
 STEP_TEXT = {"download": "Download the audio", "split": "Split with AI", "tune": "Tune to A = 440 Hz",
@@ -108,6 +109,7 @@ class SplitPopover:
         self._build_setup()
         self._build_suffixes()
         self._build_work()
+        self.show_info()        # the card's hint and the name field's placeholder, before anything is typed
         self.frame.bind("<Escape>", lambda e: self.close())
         self.show("work" if self.app.split_job else "setup")
         self.place()
@@ -177,20 +179,22 @@ class SplitPopover:
         row = self.yt_row = ctk.CTkFrame(p, fg_color="transparent")
         row.pack(fill="x", pady=(0, 0))
         self.url_var = tk.StringVar()
-        self.url = ctk.CTkEntry(row, textvariable=self.url_var, placeholder_text="Paste a YouTube link",
+        self.url = ctk.CTkEntry(row, textvariable=self.url_var,
                                 height=40, font=font(12, mono=True), fg_color=FIELD, border_color=BORDER2,
                                 text_color=TEXT)
         self.url.pack(side="left", fill="x", expand=True)
+        EntryHint(self.url, self.url_var, "Paste a YouTube link")
         ToolButton(row, "Paste", self.paste, height=40, width=70).pack(side="left", padx=(8, 0))
         self.url_var.trace_add("write", lambda *a: self._url_changed())
 
         # File: the chosen file + Browse…
         frow = self.file_row = ctk.CTkFrame(p, fg_color="transparent")
         self.file_var = tk.StringVar()
-        self.file_entry = ctk.CTkEntry(frow, textvariable=self.file_var, placeholder_text="Choose an audio file",
+        self.file_entry = ctk.CTkEntry(frow, textvariable=self.file_var,
                                        height=40, font=font(12, mono=True), fg_color=FIELD, border_color=BORDER2,
                                        text_color=TEXT)
         self.file_entry.pack(side="left", fill="x", expand=True)
+        EntryHint(self.file_entry, self.file_var, "Choose an audio file")
         ToolButton(frow, "Browse…", self.browse, height=40, width=84).pack(side="left", padx=(8, 0))
         self.file_var.trace_add("write", lambda *a: self._url_changed())
 
@@ -212,10 +216,11 @@ class SplitPopover:
 
         self.section(p, "FILE NAME")
         self.name_var = tk.StringVar()
-        self.name_entry = ctk.CTkEntry(p, textvariable=self.name_var, placeholder_text="Blank = video title",
+        self.name_entry = ctk.CTkEntry(p, textvariable=self.name_var,
                                        height=40, font=font(13), fg_color=FIELD, border_color=BORDER2,
                                        text_color=TEXT)
         self.name_entry.pack(fill="x")
+        self.name_hint = EntryHint(self.name_entry, self.name_var, "Blank = video title")
         self.name_var.trace_add("write", lambda *a: self.refresh_preview())
 
         # location: the song folder (with its project file) is created here
@@ -465,7 +470,7 @@ class SplitPopover:
             self.info_sub.configure(text="The original is copied, never changed; karaoke and stems are optional."
                                     if is_file else "The best audio is saved as-is; karaoke and stems are optional.",
                                     text_color=MUTED)
-            self.name_entry.configure(placeholder_text="Blank = file name" if is_file else "Blank = video title")
+            self.name_hint.set("Blank = file name" if is_file else "Blank = video title")
         elif i.get("loading"):
             self.info_title.configure(text="Looking up the video…")
             self.info_sub.configure(text="", text_color=MUTED)
@@ -478,7 +483,7 @@ class SplitPopover:
             local = q == "local file" or "from this computer" in q
             bits = [fmt_dur(i.get("duration")), q if local else ("best quality: " + q if q else "")]
             self.info_sub.configure(text=" · ".join(b for b in bits if b), text_color=MUTED)
-            self.name_entry.configure(placeholder_text=f"Blank = {i['title'][:40]}")
+            self.name_hint.set(f"Blank = {i['title'][:40]}")
         self.refresh_preview()
 
     # ----- suffix settings (cogwheel) -----

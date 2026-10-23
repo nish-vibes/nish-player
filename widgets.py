@@ -183,3 +183,27 @@ def ctrl_reset(slider, value, handler):
         return "break"
     slider.bind("<Control-Button-1>", do)
     slider.bind("<Control-B1-Motion>", lambda e: "break")
+
+
+class EntryHint:
+    """Placeholder text for a CTkEntry that has a textvariable. (CustomTkinter only shows its own
+    placeholder without one.) Shown in CustomTkinter's placeholder colour while the variable is
+    empty; clicking it puts the cursor in the entry."""
+
+    def __init__(self, entry, var, text):
+        self.entry, self.var, self.inner = entry, var, entry._entry
+        self.lbl = tk.Label(entry, text=text, font=self.inner.cget("font"), bd=0, padx=0, pady=0, cursor="xterm")
+        self.lbl.bind("<Button-1>", lambda e: (self.inner.focus_set(), self.inner.icursor("end")))
+        var.trace_add("write", lambda *a: self.update())
+        self.update()
+
+    def set(self, text):
+        self.lbl.configure(text=text)
+
+    def update(self):
+        if self.var.get():
+            self.lbl.place_forget()
+            return
+        e = self.entry
+        self.lbl.configure(bg=self.inner.cget("bg"), fg=e._apply_appearance_mode(e._placeholder_text_color))
+        self.lbl.place(in_=self.inner, x=1, rely=0.5, anchor="w")
