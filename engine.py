@@ -160,13 +160,17 @@ def render(audio, speed, semitones, vocal=False, cents=0.0):
 
 def peaks(audio, buckets=1600):
     """Waveform overview: peak level per bucket, 0..1."""
-    mono = np.abs(audio).max(axis=1)
-    n = len(mono)
+    n = len(audio)
     if n == 0:
         return np.zeros(buckets, np.float32)
     edges = np.linspace(0, n, buckets + 1).astype(np.int64)
     edges[-1] = n
-    out = np.maximum.reduceat(mono, np.minimum(edges[:-1], n - 1))
+    idx = np.minimum(edges[:-1], n - 1)
+    # highest and lowest sample per bucket and channel (much faster than abs().max(axis=1) on the
+    # whole song, which made a 4-minute track take half a second)
+    out = np.maximum(np.maximum.reduceat(audio, idx, axis=0), -np.minimum.reduceat(audio, idx, axis=0))
+    if out.ndim == 2:
+        out = out.max(axis=1)
     top = float(out.max()) or 1.0
     return (out / top).astype(np.float32)
 
@@ -715,7 +719,7 @@ def analyse_tuning(tracks):
     n = max(len(t.orig) for t in tracks)
     mono = np.zeros(n, np.float32)
     for t in tracks:
-        mono[:len(t.orig)] += t.orig.mean(axis=1)
+        mono[:len(t.orig)] += tuning.mono(t.orig)
     offset, conf = tuning.estimate_offset_cents(mono, SR)
     corr = tuning.correction_cents(offset, conf)
     a_hz = 440.0 * 2 ** (offset / 1200) if offset is not None else None

@@ -7,11 +7,19 @@ Returns cents: +18 means the recording is 18 cents sharp (so correct by -18).
 import numpy as np
 
 
+def mono(x):
+    """(frames, channels) -> (frames,): the average of the channels. Same result as x.mean(axis=1),
+    several times faster for stereo (numpy is slow at reducing such a short axis)."""
+    if x.ndim == 2 and x.shape[1] == 2:
+        return (x[:, 0] + x[:, 1]) * np.float32(0.5) if x.dtype == np.float32 else x.mean(axis=1)
+    return x.mean(axis=1) if x.ndim == 2 else x
+
+
 def estimate_offset_cents(x, sr, fmin=100.0, fmax=1500.0, max_seconds=120):
     """x: mono float array. Returns (offset_cents, confidence 0..1) or (None, 0)."""
     x = np.asarray(x, dtype=np.float32)
     if x.ndim > 1:
-        x = x.mean(axis=1)
+        x = mono(x)
     n_max = int(max_seconds * sr)
     if len(x) > n_max:  # analyse the middle of the song
         start = (len(x) - n_max) // 2

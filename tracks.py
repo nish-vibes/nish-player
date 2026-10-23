@@ -1,5 +1,7 @@
 """Tracks in the main window: adding files, lanes, selection, reordering, track height, volume automation and the ruler."""
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
@@ -67,15 +69,18 @@ class TracksMixin:
         labels = engine.load_labels()
         names = {str(Path(k).resolve()): v for k, v in (names or {}).items()}
 
-        def work():  # one after another, so the lanes keep the order of the files
-            for f in files:
-                key = str(f.resolve())
-                try:
-                    audio = engine.decode(f)
-                    name = (names.get(key) or labels.get(key)) if prefer_names else (labels.get(key) or names.get(key))
-                    self.events.put(("loaded", f, audio, name))
-                except Exception as e:
-                    self.events.put(("load_error", f, str(e)))
+        def work():  # decoded side by side, handed over in file order so the lanes keep that order
+            workers = max(1, min(len(files), os.cpu_count() or 2, 4))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                jobs = [pool.submit(engine.decode, f) for f in files]
+                for f, job in zip(files, jobs):
+                    key = str(f.resolve())
+                    try:
+                        audio = job.result()
+                        name = (names.get(key) or labels.get(key)) if prefer_names else (labels.get(key) or names.get(key))
+                        self.events.put(("loaded", f, audio, name))
+                    except Exception as e:
+                        self.events.put(("load_error", f, str(e)))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -389,7 +394,13 @@ class TracksMixin:
             else:
                 c.create_text(x + 3, 9, text=fmt_time(t), anchor="w", fill=DIM, font=(MONO, 8))
             t += step
-        self._ruler_len = (n, r, self.player.loop, self.player.loop_fade)
+        self._ruler_len = self._ruler_key()
+
+    def _ruler_key(self):
+        """What the ruler depends on; it is redrawn when this changes (also the waveform width, which
+        is only known once the first lane has been laid out)."""
+        p = self.player
+        return p.length(), p.region, p.loop, p.loop_fade, self._ruler_span()
 
     def refresh_region(self):
         self.draw_ruler()

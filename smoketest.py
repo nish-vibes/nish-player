@@ -105,6 +105,9 @@ def run(app, out_dir):
         assert labels == ["Drums", "Other", "Vocals"], labels
         assert app.song_lbl.cget("text") == "My Song", app.song_lbl.cget("text")
         log(f"ok: loaded 3 tracks {labels}, song name 'My Song'")
+        yield 0.3
+        xs = [app.ruler.coords(i)[0] for i in app.ruler.find_all() if app.ruler.type(i) == "text"]
+        assert len(xs) >= 2 and max(xs) - min(xs) > 100, xs     # the time marks spread over the waveform
         app.add_files(files)  # duplicates are ignored
         yield 0.3
         assert len(app.lanes) == 3

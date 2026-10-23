@@ -205,8 +205,8 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
             lane.update_playhead(frac)
         sr = engine.SR
         self.time_lbl.configure(text=f"{fmt_time(frac * n / sr)} / {fmt_time(n / sr)}")
-        if getattr(self, "_ruler_len", None) != (n, self.player.region, self.player.loop, self.player.loop_fade):
-            self.draw_ruler()
+        if getattr(self, "_ruler_len", None) != self._ruler_key():
+            self.draw_ruler()     # length, loop area or waveform width changed
 
     def _handle_events(self):
         while True:

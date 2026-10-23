@@ -431,7 +431,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
         if want_tune and outputs:
             stage("tune", 0.0)
             tonal = [v for k, v in sep.items() if k != "drums"] or [audio]
-            mono = sum(v.mean(axis=1) for v in tonal)
+            mono = sum(tuning.mono(v) for v in tonal)
             offset, conf = tuning.estimate_offset_cents(mono, engine.SR)
             corr = tuning.correction_cents(offset, conf)
             detected = offset is not None and conf >= 0.12
