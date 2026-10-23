@@ -3,6 +3,7 @@
 Makes a small test song, loads it, clicks through every control, exports, and writes
 gui_smoketest.txt (plus screenshots) to <folder>. Exit code 0 = passed.
 """
+import faulthandler
 import os
 import sys
 import time
@@ -13,6 +14,8 @@ import numpy as np
 
 import engine
 from theme import cents_text, AMBER_BORDER
+
+HANG_S = int(os.environ.get("NISH_HANG_S", 300))   # the watchdog's limit for one step (the real AI split yields while it works)
 
 
 def make_song(folder, seconds=8.0, a_hz=436.8):
@@ -50,6 +53,27 @@ def run(app, out_dir):
         lines.append(msg)
         report.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    current = {"name": "load the test song"}
+
+    def section(name):
+        current["name"] = name
+
+    # Watchdog: if the test makes no progress for HANG_S seconds (a stuck dialog, a deadlock), write
+    # where every thread is to the report and exit, instead of hanging until the build times out.
+    hang_log = open(report.with_name("gui_smoketest_hang.txt"), "w", encoding="utf-8")
+
+    def watchdog():
+        hang_log.seek(0)
+        hang_log.truncate()
+        hang_log.write(f"HANG in section '{current['name']}': no progress for {HANG_S} s. Threads:\n")
+        hang_log.flush()
+        faulthandler.dump_traceback_later(HANG_S, exit=True, file=hang_log)
+
+    def watchdog_off():          # finished or failed normally: no hang file left behind
+        faulthandler.cancel_dump_traceback_later()
+        hang_log.close()
+        Path(hang_log.name).unlink(missing_ok=True)
+
     def shot(name):
         try:
             from PIL import ImageGrab
@@ -83,7 +107,7 @@ def run(app, out_dir):
         assert len(app.lanes) == 3
         log("ok: duplicate files ignored")
 
-        # rename (file name stays the same)
+        section("rename (file name stays the same)")
         lane = next(l for l in app.lanes if l.track.label == "Vocals")
         lane.name.focus_set()
         lane.name_var.set("Lead vocals")
@@ -94,7 +118,7 @@ def run(app, out_dir):
         assert engine.load_labels().get(str(Path(lane.track.path).resolve())) == "Lead vocals"
         log("ok: renamed track, label remembered, file untouched")
 
-        # mute / solo / volume
+        section("mute / solo / volume")
         drums = next(l for l in app.lanes if l.track.label == "Drums")
         drums.mute_btn.invoke()
         lane.solo_btn.invoke()
@@ -108,7 +132,7 @@ def run(app, out_dir):
         assert g == {"Lead vocals": 0.6, "Drums": 0.0, "Other": 1.0}, g
         log("ok: mute, solo and volume")
 
-        # selection, keyboard S / M, Ctrl+click on S, reorder with the grip
+        section("selection, keyboard S / M, Ctrl+click on S, reorder with the grip")
         assert app.selected is app.lanes[0] and app.lanes[0].selected
         Lane = type(app.lanes[0])
         other = app.lanes[2]
@@ -157,14 +181,14 @@ def run(app, out_dir):
         assert app.lanes[0] is first and app.player.tracks[0] is first.track
         log("ok: drag the six-dot grip to reorder tracks (player order follows)")
 
-        # seek
+        section("seek")
         app.seek(0.5)
         yield 0.1
         assert abs(app.player.position() - 0.5) < 0.01
         assert lane.played == len(lane.bars) // 2 or abs(lane.played - len(lane.bars) / 2) <= 1
         log(f"ok: seek, waveform bars={len(lane.bars)}")
 
-        # speed and pitch (live)
+        section("speed and pitch (live)")
         app.speed_slider.set(0.85)
         app.on_speed(0.85)
         app.pitch_slider.set(-2)
@@ -197,7 +221,7 @@ def run(app, out_dir):
         assert app.speed_val.cget("text") == "0.85×" and app.pitch_val.cget("text") == "−2 semitones"
         log(f"ok: live speed 0.85x / pitch -2 st in {time.time() - t0:.1f}s, playhead kept")
 
-        # manual fine tune, then Auto 440 overrides it
+        section("manual fine tune, then Auto 440 overrides it")
         app.fine_slider.set(12)
         app.on_fine(12)
         assert app.fine_val.cget("text") == "+12 ct"
@@ -222,7 +246,7 @@ def run(app, out_dir):
             yield 0.2
         log("ok: Auto 440 correction applied to playback")
 
-        # master fader and clip light (latches until clicked)
+        section("master fader and clip light (latches until clicked)")
         app.fader.set_pos(0.7)
         assert abs(app.player.master - 10 ** (-3 / 20)) < 0.01, app.player.master
         app.fader.set_pos(0.8)
@@ -237,7 +261,7 @@ def run(app, out_dir):
         assert not app.fader.clip_shown and not app.player.clip
         log("ok: master fader, clip light latches and resets on click")
 
-        # playback (only if this machine has an audio device)
+        section("playback (only if this machine has an audio device)")
         if app.player.stream is not None:
             app.seek(0)
             app.toggle_play()
@@ -252,7 +276,7 @@ def run(app, out_dir):
         yield 0.3
         shot("1-loaded")
 
-        # export dialog
+        section("export dialog")
         app.open_export()
         yield 0.8
         d = app.export_dialog
@@ -296,14 +320,14 @@ def run(app, out_dir):
         d.close()
         yield 0.2
 
-        # Auto 440 off -> manual value comes back
+        section("Auto 440 off -> manual value comes back")
         app.auto_var.set(False)
         app.on_auto()
         yield 0.2
         assert app.fine_val.cget("text") == "+12 ct" and app.fine_slider.cget("state") == "normal"
         log("ok: Auto 440 off restores the manual fine tune")
 
-        # Ctrl+click puts sliders back to their defaults
+        section("Ctrl+click puts sliders back to their defaults")
         def ctrl_click(slider):
             c = slider._canvas
             c.event_generate("<Control-Button-1>", x=c.winfo_width() // 4, y=c.winfo_height() // 2,
@@ -320,7 +344,7 @@ def run(app, out_dir):
         assert app.player.key() == (1.0, 0.0, 0.0)
         log("ok: Ctrl+click resets speed, pitch, fine tune, track volume and master")
 
-        # fine-tuning is always varispeed (pitch and tempo together, no compensation)
+        section("fine-tuning is always varispeed (pitch and tempo together, no compensation)")
         for c in (3, 12, -40):
             app.fine_slider.set(c)
             app.on_fine(c)
@@ -344,7 +368,7 @@ def run(app, out_dir):
 
         app.fine_slider.set(0)
         app.on_fine(0)
-        # Auto 440 has no dead zone: +3 ct is simply corrected
+        section("Auto 440 has no dead zone: +3 ct is simply corrected")
         app.auto_var.set(True)
         app.on_auto()
         yield 0.1
@@ -357,7 +381,7 @@ def run(app, out_dir):
         assert app.auto and app.current_cents() == 3.0 and app.player.varispeed
         assert app.fine_val.cget("text") == "+3 ct", app.fine_val.cget("text")
         shot("4b-auto440")
-        # Auto 440 can't detect the tuning: a popup, and Auto 440 turns itself off
+        section("Auto 440 can't detect the tuning: a popup, and Auto 440 turns itself off")
         app._analysis_gen += 1
         app.analysing = True
         app.events.put(("analysed", app._analysis_gen, (0.0, None, 0.0)))
@@ -377,7 +401,7 @@ def run(app, out_dir):
         yield 0.2
         log("ok: Auto 440 corrects small offsets too (no dead zone); 'couldn't detect' popup turns it off")
 
-        # projects: save, change something, reopen -> everything comes back
+        section("projects: save, change something, reopen -> everything comes back")
         from tkinter import filedialog as fd
         real_ask = fd.asksaveasfilename
         fd.asksaveasfilename = lambda **kw: str(out / "Test Project.nish")
@@ -434,7 +458,7 @@ def run(app, out_dir):
         log("ok: project saved, '•' when changed, 'save changes?' asked, reopened with names, volume, "
             "mute, speed and loop area; listed under Open ▾")
 
-        # .nish files open with this app (Windows build only: written for the current user, no admin)
+        section(".nish files open with this app (Windows build only: written for the current user, no admin)")
         if sys.platform == "win32" and getattr(sys, "frozen", False):
             import instance
             import winreg
@@ -445,7 +469,7 @@ def run(app, out_dir):
             assert str(Path(sys.executable).resolve()) in cmd and '"%1"' in cmd, cmd
             log(f"ok: .nish registered for double-click: {cmd}")
 
-        # export folder: the open project's (song) folder when there is one
+        section("export folder: the open project's (song) folder when there is one")
         proj_path = str(pth)
         app.project_path = proj_path
         app.open_export()
@@ -456,7 +480,7 @@ def run(app, out_dir):
         d.close()
         log("ok: exports go to the open project's folder")
         app.project_path = None
-        # otherwise the Desktop by default; "Change…" makes the new folder the default
+        section("otherwise the Desktop by default; 'Change…' makes the new folder the default")
         assert settings.export_folder() == settings.desktop()
         app.open_export()
         yield 0.5
@@ -470,7 +494,7 @@ def run(app, out_dir):
         app.export_dialog.close()
         log(f"ok: export folder defaults to the Desktop ({settings.desktop()}) and remembers a new choice")
 
-        # volume automation (A): flat line at the current volume, click adds, drag moves, double-click deletes
+        section("volume automation (A): flat line at the current volume, click adds, drag moves, double-click deletes")
         import theme as _th
         import project as _proj
         E = lambda **k: type("E", (), {"x": 0, "y": 0, "y_root": 0, **k})()
@@ -528,7 +552,7 @@ def run(app, out_dir):
         app._set_project(None)
         log("ok: volume automation: A on/off, add, drag, delete, export chip, saved and reopened in a project")
 
-        # one height for every track: drag an edge, compact mode with V/A/M/S and the volume popover
+        section("one height for every track: drag an edge, compact mode with V/A/M/S and the volume popover")
         assert app.track_h == 92 and app.lanes[0].head.cget("height") == 92
         app.resize_start(lane, E(y_root=500))
         app.resize_move(E(y_root=540))
@@ -563,11 +587,11 @@ def run(app, out_dir):
         yield 0.2
         assert app.track_h == 132 and not lane.compact and lane.volrow.winfo_ismapped()
         assert int(lane.auto_btn.grid_info()["column"]) == int(lane.solo_btn.grid_info()["column"])  # A under S
-        app.set_track_height(engine_default := 92, save=True)
+        app.set_track_height(92, save=True)
         log("ok: track height: drag an edge (all tracks follow, remembered), compact mode V/A/M/S with the "
             "volume popover, back to the previous height")
 
-        # settings cog: manual update check (GitHub simulated), YouTube-failure notice
+        section("settings cog: manual update check (GitHub simulated), YouTube-failure notice")
         assert not hasattr(app, "clear_btn")
         real_check = updater.check
         updater.check = lambda: {"tag": "v9.9.9", "newer": True, "url": "https://example.invalid/x.zip",
@@ -585,7 +609,7 @@ def run(app, out_dir):
         assert m.state == "newer" and "9.9.9 is available (268 MB)" in m.msg.cget("text"), m.msg.cget("text")
         assert m.btn.cget("text") in ("Download", "Open download page"), m.btn.cget("text")
         shot("6-update")
-        # after the download: a 'ready' message and a separate Close and update button
+        section("after the download: a 'ready' message and a separate Close and update button")
         installed = []
         real_install = app.install_update
         app.install_update = lambda stage: installed.append(stage)
@@ -622,7 +646,7 @@ def run(app, out_dir):
         log("ok: cog menu: Check for updates -> Download -> ready -> Close and update / latest version; "
             "amber notice after 5 failed YouTube extractions today")
 
-        # theme: dark by default, switched in the cog menu, remembered; window rebuilt in place
+        section("theme: dark by default, switched in the cog menu, remembered; window rebuilt in place")
         import theme
         assert theme.MODE == "dark" and settings.get("theme", "dark") == "dark"
         n_lanes = len(app.lanes)
@@ -637,7 +661,7 @@ def run(app, out_dir):
         assert app.root.cget("fg_color") in (theme.PALETTE["BG"][1], ("gray92", "gray14")) or \
             theme.PALETTE["BG"][1] in str(app.root.cget("fg_color")), app.root.cget("fg_color")
         assert len(app.lanes) == n_lanes and [round(l.track.volume, 3) for l in app.lanes] == vols
-        assert app.speed == speed and app.lanes[0].canvas.cget("bg") in (PANEL_L := theme.PALETTE["PANEL"][1],
+        assert app.speed == speed and app.lanes[0].canvas.cget("bg") in (theme.PALETTE["PANEL"][1],
                                                                           theme.PALETTE["SELECTED_WAVE"][1])
         assert app.settings_pop is not None and app.settings_pop.is_open()
         assert app.settings_pop.theme_btn.cget("text") == "Light"
@@ -657,7 +681,7 @@ def run(app, out_dir):
         assert theme.MODE == "dark" and settings.get("theme") == "dark" and len(app.lanes) == n_lanes
         log("ok: theme switch in the cog menu: dark (default) -> light -> dark, remembered, tracks kept")
 
-        # loop area: drag on the timeline, loop button, export only the area, clear with ×
+        section("loop area: drag on the timeline, loop button, export only the area, clear with ×")
         rc = app.ruler
         span = app._ruler_span()
         x_a, x_b = 8 + span * 0.25, 8 + span * 0.6
@@ -718,7 +742,7 @@ def run(app, out_dir):
         assert not app.fade_inner.winfo_ismapped()
         log("ok: × clears the loop area; Fade slider hides when loop is off")
 
-        # remove and clear
+        section("remove and clear")
         drums = next(l for l in app.lanes if l.track.label == "Drums")   # lanes were rebuilt by the project reopen
         app.remove_lane(drums)
         yield 0.2
@@ -728,7 +752,7 @@ def run(app, out_dir):
         assert not app.lanes and app.count_lbl.cget("text") == "NO TRACKS"
         log("ok: remove track and clear all")
 
-        # Add from YouTube – a local file stands in for the download; the AI split is real
+        section("Split song – a local file stands in for the download; the AI split is real")
         import splitter
         if os.environ.get("NISH_FAKE_SPLIT"):
             def fake(audio, model, on_progress, check_cancel):
@@ -884,13 +908,16 @@ def run(app, out_dir):
     gen = steps()
 
     def pump():
+        watchdog()
         try:
             delay = next(gen)
             app.root.after(int(delay * 1000), pump)
         except StopIteration:
+            watchdog_off()
             app.root.after(300, app.close)
         except Exception:
-            log("FAILED:\n" + traceback.format_exc())
+            watchdog_off()
+            log(f"FAILED in section '{current['name']}':\n" + traceback.format_exc())
             try:
                 shot("failure")
             except Exception:

@@ -115,6 +115,7 @@ jobs:
           if (-not $p.WaitForExit(2400000)) { $p.Kill(); $timedOut = $true }
           $report = ""
           if (Test-Path "$out\gui_smoketest.txt") { $report = Get-Content "$out\gui_smoketest.txt" -Raw }
+          if (Test-Path "$out\gui_smoketest_hang.txt") { $report += "`n--- hang ---`n" + (Get-Content "$out\gui_smoketest_hang.txt" -Raw) }
           $applog = Join-Path $env:LOCALAPPDATA "NiSH Player\log.txt"
           if (Test-Path $applog) { $report += "`n--- app log ---`n" + (Get-Content $applog -Raw) }
           Write-Output $report
