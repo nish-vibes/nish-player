@@ -11,12 +11,8 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
+import engine
 import splitter
-
-
-def engine_exts():
-    import engine
-    return engine.AUDIO_EXTS
 from theme import *  # noqa: F401,F403  (colours follow the light/dark theme)
 
 STEP_TEXT = {"download": "Download the audio", "split": "Split with AI", "tune": "Tune to A = 440 Hz",
@@ -30,7 +26,7 @@ def fmt_dur(sec):
     return f"{sec // 60}:{sec % 60:02d}"
 
 
-class YouTubeJob:
+class SplitJob:
     """Runs one download/split in the background; reports through the app's event queue."""
 
     def __init__(self, app, source, name, opts):
@@ -59,15 +55,15 @@ class YouTubeJob:
     def _work(self):
         try:
             res = splitter.run(self.source, self.name, self.opts,
-                               stage=lambda k, f: self.app.events.put(("yt_stage", self, k, f)),
+                               stage=lambda k, f: self.app.events.put(("split_stage", self, k, f)),
                                check_cancel=self.check_cancel)
-            self.app.events.put(("yt_done", self, res, None))
+            self.app.events.put(("split_done", self, res, None))
         except splitter.Cancelled:
-            self.app.events.put(("yt_done", self, None, "Cancelled."))
+            self.app.events.put(("split_done", self, None, "Cancelled."))
         except Exception as e:
             traceback.print_exc()
             msg = str(e).strip().splitlines()[-1] if str(e).strip() else type(e).__name__
-            self.app.events.put(("yt_done", self, None, msg))
+            self.app.events.put(("split_done", self, None, msg))
 
     @property
     def local(self):
@@ -93,7 +89,7 @@ class YouTubeJob:
         return "Finishing…"
 
 
-class YouTubePopover:
+class SplitPopover:
     W = 540
 
     def __init__(self, app, anchor):
@@ -120,7 +116,7 @@ class YouTubePopover:
         self._build_suffixes()
         self._build_work()
         self.frame.bind("<Escape>", lambda e: self.close())
-        self.show("work" if self.app.yt_job else "setup")
+        self.show("work" if self.app.split_job else "setup")
         self.place()
 
     # ----- layout helpers -----
@@ -151,7 +147,7 @@ class YouTubePopover:
                 f.pack(fill="x", padx=12)
             else:
                 f.pack_forget()
-        job = self.app.yt_job
+        job = self.app.split_job
         working = ("Splitting…" if job and os.path.isfile(job.source) else "Downloading…") if job and job.running \
             else "Split song"
         self.title.configure(text={"setup": "Split song", "suffixes": "Format and file names",
@@ -284,7 +280,7 @@ class YouTubePopover:
     def browse(self):
         start = self.file_var.get().strip().strip('"')
         start = str(Path(start).parent) if start and Path(start).parent.is_dir() else self.app.last_dir
-        exts = " ".join("*" + e for e in sorted(engine_exts()))
+        exts = " ".join("*" + e for e in sorted(engine.AUDIO_EXTS))
         f = filedialog.askopenfilename(parent=self.root, title="Choose a song to split", initialdir=start,
                                        filetypes=[("Audio files", exts), ("All files", "*.*")])
         if f:
@@ -299,7 +295,7 @@ class YouTubePopover:
 
     def accepts_drop(self, paths):
         """A single audio file dropped while the setup view is open: split that file."""
-        audio = [p for p in paths if Path(p).is_file() and Path(p).suffix.lower() in engine_exts()]
+        audio = [p for p in paths if Path(p).is_file() and Path(p).suffix.lower() in engine.AUDIO_EXTS]
         if len(paths) != 1 or len(audio) != 1 or not self.setup.winfo_ismapped():
             return False
         self.set_file(audio[0])
@@ -430,11 +426,10 @@ class YouTubePopover:
         if self.source() == "file":
             if not os.path.isfile(src):
                 self.info = {"error": "That file wasn't found."}
-            elif Path(src).suffix.lower() not in engine_exts():
+            elif Path(src).suffix.lower() not in engine.AUDIO_EXTS:
                 self.info = {"error": "That isn't an audio file NiSH Player can read."}
             else:
                 try:
-                    import engine
                     dur = engine.probe_seconds(src)
                 except Exception:
                     dur = None
@@ -581,7 +576,7 @@ class YouTubePopover:
         self.again_btn = ToolButton(foot, "Split another", self.add_another, height=36, primary=True)
 
     def refresh_work(self):
-        job = self.app.yt_job
+        job = self.app.split_job
         if not job:
             return
         self.work_name.configure(text=job.result["name"] if job.result else (job.name or self.current_name()))
@@ -640,27 +635,27 @@ class YouTubePopover:
             self.show_btn.pack(side="left")
 
     def cancel_or_back(self):
-        job = self.app.yt_job
+        job = self.app.split_job
         if job and job.running:
             job.cancelled = True
             self.work_msg.configure(text="Cancelling…")
             return
         if job and job.error:
-            self.app.yt_job = None
+            self.app.split_job = None
             self.show("setup")
             return
-        self.app.yt_job = None
+        self.app.split_job = None
         self.close()
 
     def add_another(self):
-        self.app.yt_job = None
+        self.app.split_job = None
         self.url_var.set("")
         self.file_var.set("")
         self.name_var.set("")
         self.show("setup")
 
     def show_folder(self):
-        job = self.app.yt_job
+        job = self.app.split_job
         if not job or not job.result:
             return
         r = job.result
@@ -682,11 +677,11 @@ class YouTubePopover:
                          else "Paste a YouTube link first."}
             self.show_info()
             return
-        if self.app.yt_job and self.app.yt_job.running:
+        if self.app.split_job and self.app.split_job.running:
             return
         self.save()
         name = self.name_var.get().strip()
         if not name and self.info and self.info.get("title"):
             name = self.info["title"]
-        self.app.yt_job = YouTubeJob(self.app, src, name, self.opts())
+        self.app.split_job = SplitJob(self.app, src, name, self.opts())
         self.show("work")

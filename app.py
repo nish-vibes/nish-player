@@ -69,11 +69,11 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
         self._analysis_gen = 0
         self._stretch_job = None
         self.export_dialog = None
-        self.yt_job = None
-        self.yt_pop = None
+        self.split_job = None
+        self.split_pop = None
         self.selected = None
         self._drag = None
-        self._yt_status = None
+        self._split_status = None
         self.last_dir = settings.desktop()    # Open… starts on the Desktop
         self.project_path = None     # the open project (.nish), if any
         self._saved_sig = None       # project state when last saved/opened
@@ -169,7 +169,7 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
     def _tick(self):
         try:
             self._handle_events()
-            self._yt_button_tick()
+            self._split_button_tick()
             if self.player.render_busy > 0:
                 self._update_busy()  # keeps the spinner turning
             self._update_positions()
@@ -239,13 +239,13 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
                 self.export_dialog.done(ev[1], ev[2])
             elif kind == "export_progress" and self.export_dialog:
                 self.export_dialog.progress(ev[1])
-            elif kind == "yt_info" and ev[1] is self.yt_pop:
+            elif kind == "yt_info" and ev[1] is self.split_pop:
                 if isinstance(ev[3], dict) and ev[3].get("error") and ev[3].get("url"):
                     self.note_yt_failure()      # YouTube couldn't read the link
-                self.yt_pop.got_info(ev[2], ev[3])
-            elif kind == "yt_stage" and ev[1] is self.yt_job:
+                self.split_pop.got_info(ev[2], ev[3])
+            elif kind == "split_stage" and ev[1] is self.split_job:
                 ev[1].progress[ev[2]] = ev[3]
-                self._yt_refresh()
+                self._split_refresh()
             elif kind == "open_paths":          # NiSH Player was started again (e.g. a .nish double-click)
                 self.bring_to_front()
                 if ev[1]:
@@ -253,28 +253,28 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
             elif kind == "settings_refresh":
                 if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
                     self.settings_pop.refresh()
-            elif kind == "yt_done" and ev[1] is self.yt_job:
-                self._yt_finished(ev[1], ev[2], ev[3])
+            elif kind == "split_done" and ev[1] is self.split_job:
+                self._split_finished(ev[1], ev[2], ev[3])
 
     # ----- Add from YouTube -----
-    def open_youtube(self):
-        import youtube_ui
-        if self.yt_pop is None or not self.yt_pop.frame.winfo_exists():
-            self.yt_pop = youtube_ui.YouTubePopover(self, self.yt_btn)
-        elif self.yt_pop.is_open():
-            self.yt_pop.close()
+    def open_split(self):
+        import split_ui
+        if self.split_pop is None or not self.split_pop.frame.winfo_exists():
+            self.split_pop = split_ui.SplitPopover(self, self.split_btn)
+        elif self.split_pop.is_open():
+            self.split_pop.close()
             return
         else:
-            self.yt_pop.show("work" if self.yt_job else "setup")
-            self.yt_pop.place()
-        self.yt_pop.url.focus_set()
-        self.root.bind("<Escape>", lambda e: self.yt_pop.close() if self.yt_pop and self.yt_pop.is_open() else None)
+            self.split_pop.show("work" if self.split_job else "setup")
+            self.split_pop.place()
+        self.split_pop.url.focus_set()
+        self.root.bind("<Escape>", lambda e: self.split_pop.close() if self.split_pop and self.split_pop.is_open() else None)
 
-    def _yt_refresh(self):
-        if self.yt_pop and self.yt_pop.is_open() and self.yt_pop.work.winfo_ismapped():
-            self.yt_pop.refresh_work()
+    def _split_refresh(self):
+        if self.split_pop and self.split_pop.is_open() and self.split_pop.work.winfo_ismapped():
+            self.split_pop.refresh_work()
 
-    def _yt_finished(self, job, result, error):
+    def _split_finished(self, job, result, error):
         job.running = False
         job.result, job.error = result, error
         if error and error != "Cancelled." and splitter_is_url(job.source) \
@@ -288,31 +288,31 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
                 self._restore = {"tracks": {}, "loop": {}, "path": str(result["project"])}
             self.add_files([p for p, _ in result["load"]], names={str(p): lbl for p, lbl in result["load"]})
         if result:
-            self._yt_done_until = self.root.winfo_toplevel().tk.call("clock", "milliseconds") + 5000
-        self._yt_refresh()
+            self._split_done_until = self.root.winfo_toplevel().tk.call("clock", "milliseconds") + 5000
+        self._split_refresh()
 
-    def _yt_button_tick(self):
-        """While a YouTube job runs, the header button becomes a spinner with the current step."""
-        job = self.yt_job
+    def _split_button_tick(self):
+        """While a split runs, the header button becomes a spinner with the current step."""
+        job = self.split_job
         now = int(self.root.tk.call("clock", "milliseconds"))
         if job and job.running:
             frame = (now // 90) % 12
             state = ("spin", frame, job.short_status())
-        elif job and job.result and now < getattr(self, "_yt_done_until", 0):
+        elif job and job.result and now < getattr(self, "_split_done_until", 0):
             state = ("done",)
         else:
             state = ("idle",)
-        if state == self._yt_status:
+        if state == self._split_status:
             return
-        self._yt_status = state
+        self._split_status = state
         if state[0] == "spin":
-            self.yt_btn.configure(image=icon(f"spin{state[1]}", ACCENT_SOFT, 18), text=state[2],
+            self.split_btn.configure(image=icon(f"spin{state[1]}", ACCENT_SOFT, 18), text=state[2],
                                   border_color=ACCENT, text_color=ACCENT_SOFT)
         elif state[0] == "done":
-            self.yt_btn.configure(image=icon("check", GREEN, 16), text="Done", border_color=GREEN_BORDER,
+            self.split_btn.configure(image=icon("check", GREEN, 16), text="Done", border_color=GREEN_BORDER,
                                   text_color=GREEN_TXT)
         else:
-            self.yt_btn.configure(image=icon("split", ACCENT_SOFT, 18), text="Split",
+            self.split_btn.configure(image=icon("split", ACCENT_SOFT, 18), text="Split",
                                   border_color=BORDER2, text_color=TEXT2)
 
     def flash(self, msg, ms=4000):

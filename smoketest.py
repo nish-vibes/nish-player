@@ -648,10 +648,10 @@ def run(app, out_dir):
         yield 0.6
         shot("8b-light-export")
         app.export_dialog.close()
-        app.open_youtube()
+        app.open_split()
         yield 0.6
         shot("8c-light-youtube")
-        app.yt_pop.close()
+        app.split_pop.close()
         app.apply_theme("dark")
         yield 0.6
         assert theme.MODE == "dark" and settings.get("theme") == "dark" and len(app.lanes) == n_lanes
@@ -739,10 +739,10 @@ def run(app, out_dir):
         mix = sum(engine.decode(f) for f in files)
         song = out / "song" / "Smoke Song source.wav"
         engine._encode(mix, song, "WAV")
-        app.open_youtube()
+        app.open_split()
         yield 0.5
-        pop = app.yt_pop
-        assert pop.is_open() and app.yt_btn.cget("text") == "Split"
+        pop = app.split_pop
+        assert pop.is_open() and app.split_btn.cget("text") == "Split"
         assert pop.title.cget("text") == "Split song"
         ch = pop.choices
         E = lambda **k: type("E", (), {"x": 0, "y": 0, **k})()
@@ -816,7 +816,7 @@ def run(app, out_dir):
         yield 0.2
         pop.go.invoke()
         yield 0.3
-        job = app.yt_job
+        job = app.split_job
         assert job is not None and pop.work.winfo_ismapped()
         assert pop.body._parent_canvas.yview()[0] == 0.0, "progress view must start at the top"
         f, dot, lbl, meta, bar = pop.step_rows["download"]
@@ -831,10 +831,10 @@ def run(app, out_dir):
         shot("3b-youtube-working")
         pop.close()
         yield 0.4
-        assert app.yt_btn.cget("text") != "Split", app.yt_btn.cget("text")
+        assert app.split_btn.cget("text") != "Split", app.split_btn.cget("text")
         assert "YouTube" not in app.status.cget("text"), app.status.cget("text")
-        log(f"ok: popover closed, header button spins: '{app.yt_btn.cget('text')}'")
-        app.open_youtube()
+        log(f"ok: popover closed, header button spins: '{app.split_btn.cget('text')}'")
+        app.open_split()
         yield 0.3
         assert pop.work.winfo_ismapped()
         t0 = time.time()
@@ -869,9 +869,9 @@ def run(app, out_dir):
         yield 0.5
         shot("4-youtube-done")
         log("ok: stems added to the workspace in order")
-        assert app.yt_btn.cget("text") == "Done"
+        assert app.split_btn.cget("text") == "Done"
         t0 = time.time()
-        while app.yt_btn.cget("text") != "Split":
+        while app.split_btn.cget("text") != "Split":
             assert time.time() - t0 < 10, "button did not go back to normal"
             yield 0.3
         log("ok: header button shows Done, then returns to normal")

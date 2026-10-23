@@ -3,7 +3,7 @@
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
-datas, binaries, hiddenimports = [], [], ["smoketest", "youtube_ui", "splitter", "theme",
+datas, binaries, hiddenimports = [], [], ["smoketest", "split_ui", "splitter", "theme",
                                                   "settings", "settings_menu", "updater", "project", "project_ui",
                                                   "instance", "split_choices",
                                                   "lane", "widgets", "layout", "tracks", "speed_pitch", "export_dialog"]

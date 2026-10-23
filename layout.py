@@ -52,8 +52,8 @@ class LayoutMixin:
             except Exception:
                 pass
         self.lanes, self.selected = [], None
-        self.yt_pop = self.recent_pop = self.settings_pop = self.alert_win = self.export_dialog = None
-        self._yt_status = self._shown_playing = self._ruler_len = None
+        self.split_pop = self.recent_pop = self.settings_pop = self.alert_win = self.export_dialog = None
+        self._split_status = self._shown_playing = self._ruler_len = None
         self._build_ui()
         for i, t in enumerate(self.player.tracks):
             lane = Lane(self, self.lanes_box, t, TRACK_COLORS[i % len(TRACK_COLORS)])
@@ -113,9 +113,9 @@ class LayoutMixin:
         self.recent_btn.pack(side="left", padx=(2, 0))
         self.save_btn = ToolButton(right, "Save project", lambda: self.save_project(), width=76)
         self.save_btn.pack(side="left", padx=4)
-        self.yt_btn = ToolButton(right, "Split", self.open_youtube, image=icon("split", ACCENT_SOFT, 18),
+        self.split_btn = ToolButton(right, "Split", self.open_split, image=icon("split", ACCENT_SOFT, 18),
                                  compound="left", width=168)
-        self.yt_btn.pack(side="left", padx=4)
+        self.split_btn.pack(side="left", padx=4)
         self.export_btn = ToolButton(right, "Export…", self.open_export, primary=True,
                                      image=icon("export", ACCENT_TXT, 15), compound="left")
         self.export_btn.pack(side="left", padx=(4, 0))

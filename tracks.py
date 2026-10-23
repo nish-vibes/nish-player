@@ -39,7 +39,7 @@ class TracksMixin:
     def _on_drop(self, event):
         self._drop_highlight(False)
         paths = self.root.tk.splitlist(event.data)
-        pop = self.yt_pop
+        pop = self.split_pop
         if pop is not None and pop.is_open() and pop.accepts_drop(paths):
             return event.action        # the Split dialog takes the file to split
         self.open_paths(paths)
