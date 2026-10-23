@@ -7,7 +7,7 @@ Folder layout (suffixes are configurable, added after the name with a space):
     <location>/<Name>/<Name> Auto440.flac                    the original tuned to A = 440 Hz
     <location>/<Name>/<Name> KARAOKE[ Auto440].mp3           karaoke, always MP3 320
     <location>/<Name>/Separated Stems - <Name>/<Name> VOX[ Auto440].flac ...   4 or 6 stems
-YouTube imports always keep the original and its Auto440 copy.
+YouTube imports always keep the original (and its Auto440 copy when that switch is on).
 """
 import copy
 import json

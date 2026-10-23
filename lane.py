@@ -1,4 +1,5 @@
-"""One track lane (header with name, M/S and volume, plus the waveform) and the small volume popover used in compact mode."""
+"""One track lane (header with name, M/S and volume, plus the waveform) and the small volume popover
+used in compact mode."""
 import math
 import tkinter as tk
 
@@ -62,7 +63,8 @@ class Lane:
         self.solo_btn = ctk.CTkButton(head, text="S", width=30, height=28, corner_radius=6,
                                       font=font(12, "bold", True), command=self.toggle_solo)
         self.solo_btn.bind("<Control-Button-1>", lambda e: (self.app.solo_only(self), "break")[1])
-        self.remove_btn = ctk.CTkButton(head, text="", image=icon("close", DIM, 11), width=24, height=28, corner_radius=6,
+        self.remove_btn = ctk.CTkButton(head, text="", image=icon("close", DIM, 11), width=24, height=28,
+                                        corner_radius=6,
                                         fg_color="transparent", hover_color=BTN_HOVER, text_color=DIM,
                                         font=font(12), command=lambda: self.app.remove_lane(self))
 

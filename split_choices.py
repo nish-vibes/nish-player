@@ -62,8 +62,8 @@ class ChoiceRow(tk.Canvas):
     def columns(self):
         w = max(200, self.winfo_width())
         u = (w - COG_W - 3 * GAP) / 4
-        return {"original": (0, u), "karaoke": (u + GAP, 2 * u + GAP), "stems_group": (2 * u + 2 * GAP, 4 * u + 2 * GAP),
-                "cog": (w - COG_W, w)}
+        return {"original": (0, u), "karaoke": (u + GAP, 2 * u + GAP),
+                "stems_group": (2 * u + 2 * GAP, 4 * u + 2 * GAP), "cog": (w - COG_W, w)}
 
     # ----- drawing -----
     def draw(self):

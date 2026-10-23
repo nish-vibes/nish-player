@@ -208,7 +208,8 @@ def run_script(script, wait=False):
     script = Path(script)
     exe = "powershell"
     if os.name == "nt":   # the full path, in case PATH is unusual
-        cand = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        system = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+        cand = system / "WindowsPowerShell" / "v1.0" / "powershell.exe"
         if cand.is_file():
             exe = str(cand)
     cmd = [exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(script)]

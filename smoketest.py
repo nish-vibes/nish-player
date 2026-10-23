@@ -15,7 +15,7 @@ import numpy as np
 import engine
 from theme import cents_text, AMBER_BORDER
 
-HANG_S = int(os.environ.get("NISH_HANG_S", 300))   # the watchdog's limit for one step (the real AI split yields while it works)
+HANG_S = int(os.environ.get("NISH_HANG_S", 300))   # watchdog limit for one step (the AI split yields while it works)
 
 
 def make_song(folder, seconds=8.0, a_hz=436.8):

@@ -37,6 +37,11 @@ jobs:
           pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt "pyinstaller>=6.11"
 
+      - name: Style check (ruff, settings in ruff.toml)
+        run: |
+          pip install "ruff==0.16.*"
+          ruff check --output-format github .
+
       - name: Decide whether to publish a release
         id: rel
         shell: bash

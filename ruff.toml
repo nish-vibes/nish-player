@@ -1,0 +1,18 @@
+# Style checks (run in CI):  ruff check .
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "B"]
+ignore = [
+    "F403", "F405",   # "from theme import *" is how modules get the colours (theme.set_mode refreshes them)
+    "E402",           # app.py sets up logging and the ffmpeg path before some imports
+    "E731",           # small named lambdas are fine
+    "E741",           # "l" for a lane is used throughout
+    "B905",           # zip() over lists of the same length; strict= adds nothing here
+]
+
+[lint.per-file-ignores]
+# The colour names are created from PALETTE at import (globals().update); tests/test_colors.py
+# checks every name theme.py uses exists.
+"theme.py" = ["F821"]

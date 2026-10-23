@@ -1,4 +1,5 @@
-"""Tracks in the main window: adding files, lanes, selection, reordering, track height, volume automation and the ruler."""
+"""Tracks in the main window: adding files, lanes, selection, reordering, track height, volume automation
+and the ruler."""
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -77,7 +78,8 @@ class TracksMixin:
                     key = str(f.resolve())
                     try:
                         audio = job.result()
-                        name = (names.get(key) or labels.get(key)) if prefer_names else (labels.get(key) or names.get(key))
+                        name = ((names.get(key) or labels.get(key)) if prefer_names
+                                else (labels.get(key) or names.get(key)))
                         self.events.put(("loaded", f, audio, name))
                     except Exception as e:
                         self.events.put(("load_error", f, str(e)))

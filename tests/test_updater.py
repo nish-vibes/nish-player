@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import zipfile
 from pathlib import Path
 
@@ -40,7 +39,7 @@ def main():
     ok(f"export folder: Desktop ({settings.desktop()}) by default, remembers the user's choice")
 
     # YouTube failures: an update is suggested after five on the same day
-    for i in range(4):
+    for _ in range(4):
         settings.note_yt_failure("2026-10-19")
     assert not settings.suggest_update("2026-10-19")
     assert settings.note_yt_failure("2026-10-19") == 5 and settings.suggest_update("2026-10-19")

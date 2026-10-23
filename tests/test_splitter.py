@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import engine  # noqa: E402
 import splitter  # noqa: E402
 import tuning  # noqa: E402
-from tests.test_engine import tone_song, write_wav  # noqa: E402
+from tests.test_engine import tone_song  # noqa: E402
 
 SR = engine.SR
 

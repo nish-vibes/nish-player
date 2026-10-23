@@ -46,8 +46,8 @@ def main():
     known = set(dir(theme)) | set(dir(__builtins__))
     for f in sorted(ROOT.glob("*.py")):
         tree = ast.parse(f.read_text(encoding="utf-8"))
-        if not any(isinstance(n, ast.ImportFrom) and n.module == "theme" for n in tree.body):
-            continue
+        if f.name != "theme.py" and not any(isinstance(n, ast.ImportFrom) and n.module == "theme" for n in tree.body):
+            continue        # (theme.py itself is checked too: its colour names are made at import)
         own = set()
         for n in ast.walk(tree):
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):

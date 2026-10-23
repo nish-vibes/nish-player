@@ -74,8 +74,8 @@ class SplitJob:
         return "Read the file" if key == "download" and self.local else STEP_TEXT[key]
 
     def short_status(self):
-        words = {"download": "Copying" if self.local else "Downloading", "split": "Splitting", "tune": "Tuning", "save": "Saving",
-                 "load": "Loading"}
+        words = {"download": "Copying" if self.local else "Downloading", "split": "Splitting", "tune": "Tuning",
+                 "save": "Saving", "load": "Loading"}
         for k in self.steps:
             f = self.progress.get(k, 0.0)
             if f < 1.0:
@@ -322,7 +322,8 @@ class SplitPopover:
         self.thumb.configure(image=icon("wave" if is_file else "youtube", DIM, 30 if not is_file else 26))
         out, tune = splitter.effective(self.s, is_file)
         self.choices.set_state(is_file, out, tune)
-        sel = [k for k in ("original", "karaoke", "stems", "stems6") if out[k]] + (["tuned"] if tune["original"] else [])
+        sel = [k for k in ("original", "karaoke", "stems", "stems6") if out[k]]
+        sel += ["tuned"] if tune["original"] else []
         self.make_title.configure(text="MAKE" if is_file else "DOWNLOAD")
         self.go.configure(text="SPLIT" if is_file else "DOWNLOAD", state="normal" if sel else "disabled",
                           fg_color=ACCENT if sel else CONTROL)
@@ -580,8 +581,8 @@ class SplitPopover:
         self.work_name.configure(text=job.result["name"] if job.result else (job.name or self.current_name()))
         if self.work.winfo_ismapped():
             self.title.configure(text=("Splitting…" if job.local else "Downloading…") if job.running else "Split song")
-        for k, (f, dot, lbl, meta, bar) in self.step_rows.items():
-            f.pack_forget()
+        for row in self.step_rows.values():
+            row[0].pack_forget()
         for k in job.steps:
             f, dot, lbl, meta, bar = self.step_rows[k]
             f.pack(fill="x", pady=4, before=self.work_msg)

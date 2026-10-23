@@ -280,7 +280,8 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
             self.split_pop.show("work" if self.split_job else "setup")
             self.split_pop.place()
         self.split_pop.url.focus_set()
-        self.root.bind("<Escape>", lambda e: self.split_pop.close() if self.split_pop and self.split_pop.is_open() else None)
+        self.root.bind("<Escape>",
+                       lambda e: self.split_pop.close() if self.split_pop and self.split_pop.is_open() else None)
 
     def _split_refresh(self):
         if self.split_pop and self.split_pop.is_open() and self.split_pop.work.winfo_ismapped():
@@ -329,8 +330,10 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
 
     def flash(self, msg, ms=4000):
         self.status.configure(text=msg, text_color=AMBER_TXT)
-        self.root.after(ms, lambda: self.status.configure(
-            text="" if self.player.stream is not None else "No audio output found – playback is off, export still works"))
+        def back():
+            no_audio = "No audio output found – playback is off, export still works"
+            self.status.configure(text="" if self.player.stream is not None else no_audio)
+        self.root.after(ms, back)
 
     # ----- export -----
     def open_export(self):
