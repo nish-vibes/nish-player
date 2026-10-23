@@ -1,0 +1,42 @@
+{
+ "app": "NiSH Player",
+ "format": 1,
+ "tracks": [
+  {
+   "file": "song/My Song_VOX.wav",
+   "name": "Lead vocals",
+   "volume": 0.55,
+   "mute": false,
+   "solo": false,
+   "abs": "/tmp/smoke16/song/My Song_VOX.wav"
+  },
+  {
+   "file": "song/My Song_DRM.wav",
+   "name": "Drums",
+   "volume": 1.0,
+   "mute": true,
+   "solo": false,
+   "abs": "/tmp/smoke16/song/My Song_DRM.wav"
+  },
+  {
+   "file": "song/My Song_OTH.wav",
+   "name": "Other",
+   "volume": 1.0,
+   "mute": false,
+   "solo": false,
+   "abs": "/tmp/smoke16/song/My Song_OTH.wav"
+  }
+ ],
+ "speed": 0.9,
+ "pitch": 0,
+ "fine": 0,
+ "auto440": false,
+ "auto440_result": null,
+ "loop": {
+  "on": false,
+  "start": 1.0,
+  "end": 3.0,
+  "fade": 1.0
+ },
+ "master": 0.8
+}

@@ -91,11 +91,11 @@ jobs:
           Get-ChildItem models/checkpoints | ForEach-Object { "{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
           if (-not (Get-ChildItem models/checkpoints -Filter *.th)) { throw "No AI models were downloaded" }
 
-      - name: Tests (engine, splitter, updater, colours)
+      - name: Tests (engine, splitter, updater, colours, opening 1.6 projects)
         shell: pwsh
         run: |
           $env:PATH = "$PWD\vendor;$env:PATH"
-          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors") {
+          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat") {
             $out = python "tests/$t.py" 2>&1 | ForEach-Object { "$_" }
             $code = $LASTEXITCODE
             $out

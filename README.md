@@ -115,6 +115,7 @@ python tests/test_engine.py
 python tests/test_splitter.py
 python tests/test_updater.py
 python tests/test_colors.py
+python tests/test_compat.py
 python app.py --gui-smoketest <folder>
 ```
 
