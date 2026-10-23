@@ -20,8 +20,8 @@ def engine_exts():
     return engine.AUDIO_EXTS
 from theme import *  # noqa: F401,F403  (colours follow the light/dark theme)
 
-STEP_TEXT = {"download": "Download the original", "split": "Split with AI", "tune": "Tune to A = 440 Hz",
-             "save": "Save the files", "load": "Add to workspace"}
+STEP_TEXT = {"download": "Download the audio", "split": "Split with AI", "tune": "Tune to A = 440 Hz",
+             "save": "Save in the song folder", "load": "Add to workspace"}
 
 
 def fmt_dur(sec):
@@ -41,9 +41,10 @@ class YouTubeJob:
         self.result = self.error = None
         self.progress = {"download": 0.0}  # the first step shows as started straight away
         self.steps = ["download"]
-        if opts["karaoke"] or opts["stems"]:
+        out, tune = splitter.effective(opts, os.path.isfile(source))
+        if splitter.model_for(opts, os.path.isfile(source)):
             self.steps.append("split")
-        if opts["tune"] and (opts["karaoke"] or opts["stems"] or opts["tuned_original"]):
+        if any(tune["stems" if k == "stems6" else k] for k, on in out.items() if on):
             self.steps.append("tune")
         if len(self.steps) > 1:
             self.steps.append("save")
@@ -73,7 +74,7 @@ class YouTubeJob:
         return os.path.isfile(self.source)
 
     def step_text(self, key):
-        return "Copy the original" if key == "download" and self.local else STEP_TEXT[key]
+        return "Read the file" if key == "download" and self.local else STEP_TEXT[key]
 
     def short_status(self):
         words = {"download": "Copying" if self.local else "Downloading", "split": "Splitting", "tune": "Tuning", "save": "Saving",
@@ -93,7 +94,7 @@ class YouTubeJob:
 
 
 class YouTubePopover:
-    W = 480
+    W = 540
 
     def __init__(self, app, anchor):
         self.app = app
@@ -107,7 +108,7 @@ class YouTubePopover:
                                   corner_radius=14, width=self.W)
         head = ctk.CTkFrame(self.frame, fg_color="transparent")
         head.pack(fill="x", padx=20, pady=(14, 6))
-        self.title = ctk.CTkLabel(head, text="Split a song", font=font(16, "bold"), text_color=TEXT)
+        self.title = ctk.CTkLabel(head, text="Split song", font=font(16, "bold"), text_color=TEXT)
         self.title.pack(side="left")
         ctk.CTkButton(head, text="", image=icon("close", MUTED, 13), width=30, height=30,
                       fg_color="transparent", hover_color=BTN_HOVER, command=self.close).pack(side="right")
@@ -152,8 +153,8 @@ class YouTubePopover:
                 f.pack_forget()
         job = self.app.yt_job
         working = ("Splitting…" if job and os.path.isfile(job.source) else "Downloading…") if job and job.running \
-            else "Split a song"
-        self.title.configure(text={"setup": "Split a song", "suffixes": "File name suffixes",
+            else "Split song"
+        self.title.configure(text={"setup": "Split song", "suffixes": "Format and file names",
                                    "work": working}[which])
         if which == "work":
             self.refresh_work()
@@ -177,7 +178,7 @@ class YouTubePopover:
         seg.pack(fill="x", pady=(4, 10))
         seg.grid_columnconfigure((0, 1), weight=1, uniform="src")
         self.src_btns = {}
-        for col, key, text, ic in ((0, "youtube", "YouTube link", "youtube"), (1, "file", "File on this computer", "file")):
+        for col, key, text, ic in ((0, "youtube", "YouTube", "youtube"), (1, "file", "File on computer", "file")):
             b = ctk.CTkButton(seg, text=" " + text, height=32, corner_radius=6, border_width=1, compound="left",
                               command=lambda k=key: self.set_source(k))
             b.grid(row=0, column=col, sticky="ew", padx=(4 if col == 0 else 2, 4 if col == 1 else 2), pady=4)
@@ -228,67 +229,65 @@ class YouTubePopover:
         self.name_entry.pack(fill="x")
         self.name_var.trace_add("write", lambda *a: self.refresh_preview())
 
-        self.section(p, "ALSO MAKE")
+        # location: the song folder (with its project file) is created here
+        self.section(p, "LOCATION")
+        loc = ctk.CTkFrame(p, fg_color="transparent")
+        loc.pack(fill="x")
+        box = ctk.CTkFrame(loc, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=8, height=36)
+        box.pack(side="left", fill="x", expand=True)
+        box.pack_propagate(False)
+        self.loc_lbl = ctk.CTkLabel(box, text="", image=icon("folder", MUTED, 14), compound="left",
+                                    font=font(12, mono=True), text_color=SOFT, anchor="w")
+        self.loc_lbl.pack(fill="both", expand=True, padx=10)
+        ToolButton(loc, "Change project location…", self.change_folder, height=36, width=190,
+                   font=font(13)).pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(p, text="The song folder, with its project file, is created here.", font=font(12),
+                     text_color=DIM, anchor="w", height=18).pack(fill="x", pady=(4, 0))
+
+        # what to make: any mix; Stems and Stems ×6 exclude each other
+        self.make_title = self.section(p, "DOWNLOAD")
         tiles = ctk.CTkFrame(p, fg_color="transparent")
         tiles.pack(fill="x")
-        for i in range(3):
+        for i in range(4):
             tiles.grid_columnconfigure(i, weight=1, uniform="tile")
-        orig = ctk.CTkFrame(tiles, fg_color="transparent", border_color=CONTROL2, border_width=1,
-                            corner_radius=8, height=56)
-        orig.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        ctk.CTkLabel(orig, text=" Original", image=icon("check", GREEN, 12), compound="left",
-                     font=font(13, "bold"), text_color=SOFT, anchor="w", height=20).pack(fill="x", padx=10,
-                                                                                        pady=(8, 0))
-        self.orig_note = ctk.CTkLabel(orig, text="always saved", font=font(11), text_color=DIM, anchor="w", height=16)
-        self.orig_note.pack(fill="x", padx=10, pady=(0, 8))
         self.tiles = {}
-        for col, key, title in ((1, "karaoke", "Karaoke"), (2, "stems", "6 stems")):
-            b = ctk.CTkButton(tiles, text="", height=56, corner_radius=8, border_width=1, anchor="w",
-                              compound="left", font=font(13, "bold"),
-                              command=lambda k=key: self.toggle(k))
+        for col, key, title in ((0, "original", "Original"), (1, "karaoke", "Karaoke"), (2, "stems", "Stems"),
+                                (3, "stems6", "Stems ×6")):
+            b = ctk.CTkButton(tiles, text="", height=52, corner_radius=8, border_width=1, anchor="w",
+                              compound="left", font=font(13, "bold"), command=lambda k=key: self.toggle(k))
             b.grid(row=0, column=col, sticky="nsew", padx=(0, 6))
             self.tiles[key] = (b, title)
-        self.cog = ctk.CTkButton(tiles, text="", image=icon("cog", SOFT, 18), width=40, height=56,
+        self.cog = ctk.CTkButton(tiles, text="", image=icon("cog", SOFT, 18), width=40, height=52,
                                  corner_radius=8, fg_color=BTN, hover_color=BTN_HOVER, border_width=1,
                                  border_color=BORDER2, command=lambda: self.show("suffixes"))
-        self.cog.grid(row=0, column=3, sticky="ns")
-        # karaoke + stems: the karaoke file is saved but only the stems go into the workspace
-        self.kar_note = ctk.CTkLabel(p, text="Karaoke-version saves to folder but is not added to workspace.",
-                                     font=ctk.CTkFont(family=theme.UI, size=12, slant="italic"), text_color=MUTED,
-                                     anchor="center", justify="center", wraplength=400)
-        self.kar_anchor = tiles
+        self.cog.grid(row=0, column=4, sticky="ns")
+        self.tiles_anchor = tiles
 
-        self.tune_box = ctk.CTkFrame(p, corner_radius=10, border_width=1)
-        self.tune_box.pack(fill="x", pady=(10, 0))
-        top = ctk.CTkFrame(self.tune_box, fg_color="transparent")
-        top.pack(fill="x", padx=12, pady=(10, 0))
-        self.tune_var = tk.BooleanVar(value=self.s["tune"])
-        ctk.CTkCheckBox(top, text="Tune to A = 440 Hz", variable=self.tune_var, command=self.on_tune,
-                        font=font(13, "bold"), text_color=TEXT, checkbox_width=18, checkbox_height=18,
-                        corner_radius=4, border_width=2, fg_color=GREEN, hover_color=GREEN,
-                        border_color=CONTROL, checkmark_color=ACCENT_TXT).pack(side="left")
-        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color=AMBER_BADGE,
-                     corner_radius=4, height=18).pack(side="left", padx=8)
-        ctk.CTkLabel(self.tune_box, text="Karaoke and stems are saved in tune. The original stays untouched.",
-                     font=font(12), text_color=MUTED, anchor="w", height=18, wraplength=330,
-                     justify="left").pack(fill="x", padx=(40, 12), pady=(2, 10))
-        self.tuned_var = tk.BooleanVar(value=self.s["tuned_original"])
-        self.tuned_chk = ctk.CTkCheckBox(self.tune_box, text="Also save a tuned copy of the original",
-                                         variable=self.tuned_var, command=self.on_tune, font=font(12),
-                                         text_color=TEXT2, checkbox_width=16, checkbox_height=16,
-                                         corner_radius=4, border_width=2, fg_color=GREEN, hover_color=GREEN,
-                                         border_color=CONTROL, checkmark_color=ACCENT_TXT)
+        # Auto 440: one button per selected download
+        self.tune_row = ctk.CTkFrame(p, fg_color="transparent")
+        self.tune_row.pack(fill="x", pady=(10, 0))
+        head = ctk.CTkFrame(self.tune_row, fg_color="transparent", width=108, height=30)
+        head.pack(side="left")
+        head.pack_propagate(False)
+        ctk.CTkLabel(head, text="Auto 440", font=font(13, "bold"), text_color=AMBER).pack(side="left")
+        ctk.CTkLabel(head, text=" BETA ", font=font(9, "bold"), text_color=AMBER, fg_color=AMBER_BADGE,
+                     corner_radius=4, height=16).pack(side="left", padx=(6, 0))
+        self.tune_btns = {}
+        for key, title in (("original", "Original"), ("karaoke", "Karaoke"), ("stems", "Stems"),
+                           ("stems6", "Stems ×6")):
+            b = ctk.CTkButton(self.tune_row, text=" " + title, height=30, corner_radius=8, border_width=1,
+                              font=font(12, "bold"), width=40 + 8 * len(title), compound="left",
+                              command=lambda k=key: self.toggle_tune(k))
+            self.tune_btns[key] = b
+        self.tune_note = ctk.CTkLabel(p, text="", font=font(12), text_color=DIM, anchor="w", justify="left",
+                                      wraplength=self.W - 170)
+        self.tune_note.pack(fill="x", padx=(108, 0), pady=(4, 0))
 
         prev = ctk.CTkFrame(p, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=10)
         prev.pack(fill="x", pady=(12, 0))
         self.preview = ctk.CTkLabel(prev, text="", font=font(11, mono=True), text_color=SOFT, justify="left",
                                     anchor="w")
         self.preview.pack(fill="x", padx=12, pady=8)
-        loc = ctk.CTkFrame(p, fg_color="transparent")
-        loc.pack(fill="x", pady=(8, 0))
-        self.loc_lbl = ctk.CTkLabel(loc, text="", font=font(12), text_color=MUTED, anchor="w")
-        self.loc_lbl.pack(side="left", fill="x", expand=True)
-        ToolButton(loc, "Change…", self.change_folder, height=28, width=80).pack(side="right")
 
         ctk.CTkFrame(p, fg_color=SEPARATOR, height=1, corner_radius=0).pack(fill="x", pady=(14, 12))
         foot = ctk.CTkFrame(p, fg_color="transparent")
@@ -298,7 +297,7 @@ class YouTubePopover:
                       progress_color=ACCENT, button_color=SWITCH_KNOB, button_hover_color=SWITCH_KNOB,
                       fg_color=SWITCH_OFF, switch_width=36, switch_height=20,
                       command=self.save).pack(side="left")
-        self.go = ToolButton(foot, "Download", self.start, primary=True, height=40, width=110)
+        self.go = ToolButton(foot, "DOWNLOAD", self.start, primary=True, height=40, width=120)
         self.go.pack(side="right")
         ToolButton(foot, "Cancel", self.close, height=40, width=84).pack(side="right", padx=8)
 
@@ -359,34 +358,47 @@ class YouTubePopover:
             self.drop_tip.pack_forget()
             self.yt_row.pack(fill="x", after=self.src_anchor)
         self.thumb.configure(image=icon("wave" if is_file else "youtube", DIM, 30 if not is_file else 26))
-        self.orig_note.configure(text="copied, untouched" if is_file else "always saved")
-        any_split = self.s["karaoke"] or self.s["stems"]
-        self.go.configure(text=("Split" if any_split else "Save") if is_file else "Download")
+        out, tune = splitter.effective(self.s, is_file)
         for key, (b, title) in self.tiles.items():
-            on = self.s[key]
-            note = self.s['suffixes']['karaoke'] if key == "karaoke" else "own folder"
+            on = out[key]
+            locked = key == "original" and not is_file
+            note = {"original": "a copy" if is_file else "always kept", "karaoke": "MP3 320",
+                    "stems": "4 tracks", "stems6": "6 tracks"}[key]
             b.configure(text=f" {title}\n {note}", image=icon("box_on" if on else "box_off",
-                                                              ACCENT if on else CONTROL, 14),
-                        fg_color=ACCENT_TINT if on else PANEL, hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER,
-                        border_color=ACCENT if on else BORDER2, text_color=TEXT if on else SOFT)
-        if self.s["karaoke"] and self.s["stems"]:
-            self.kar_note.pack(fill="x", pady=(8, 0), after=self.kar_anchor)
+                                                              (MUTED if locked else ACCENT) if on else CONTROL, 14),
+                        fg_color=PANEL if locked else ACCENT_TINT if on else PANEL,
+                        hover_color=PANEL if locked else ACCENT_TINT_HOVER if on else BTN_HOVER,
+                        border_color=CONTROL2 if locked else ACCENT if on else BORDER2,
+                        text_color=SOFT if locked else TEXT if on else SOFT)
+        for key, b in self.tune_btns.items():
+            b.pack_forget()
+        sel = [k for k in ("original", "karaoke", "stems", "stems6") if out[k]]
+        for key in sel:
+            b = self.tune_btns[key]
+            t_on = tune["stems" if key == "stems6" else key]
+            locked = key == "original" and not is_file
+            b.configure(fg_color=AMBER_BG if t_on else BTN, border_color=AMBER_BORDER if locked else AMBER if t_on else BORDER2,
+                        text_color=AMBER if t_on else SOFT, hover_color=AMBER_BG if t_on else BTN_HOVER,
+                        image=icon("dot", AMBER if t_on else CONTROL, 9))
+            b.pack(side="left", padx=(0, 6))
+        if sel:
+            self.tune_row.pack(fill="x", pady=(10, 0), after=self.tiles_anchor)
+            note = ("The original and its Auto440 copy are always kept." if not is_file else
+                    "The original stays untouched; a tuned copy is saved next to it."
+                    if out["original"] and tune["original"] else "Lit = saved in tune (A = 440 Hz).")
+            self.tune_note.configure(text=note)
+            self.tune_note.pack(fill="x", padx=(108, 0), pady=(4, 0), after=self.tune_row)
         else:
-            self.kar_note.pack_forget()
-        tune = self.tune_var.get()
-        self.tune_box.configure(fg_color=GREEN_BG if tune else PANEL,
-                                border_color=GREEN_BORDER if tune else BORDER2)
-        if tune:
-            self.tuned_chk.pack(anchor="w", padx=(40, 12), pady=(0, 10))
-        else:
-            self.tuned_chk.pack_forget()
-        self.loc_lbl.configure(text="in " + self._short(self.s["out_root"]))
+            self.tune_row.pack_forget()
+            self.tune_note.pack_forget()
+        self.make_title.configure(text="MAKE" if is_file else "DOWNLOAD")
+        self.go.configure(text="SPLIT" if is_file else "DOWNLOAD", state="normal" if sel else "disabled",
+                          fg_color=ACCENT if sel else CONTROL)
+        self.loc_lbl.configure(text="  " + self._short(splitter.location(self.s), 40))
         self.refresh_preview()
 
     def opts(self):
         o = dict(self.s)
-        o["tune"] = self.tune_var.get()
-        o["tuned_original"] = self.tuned_var.get()
         o["workspace"] = self.ws_var.get()
         return o
 
@@ -400,14 +412,13 @@ class YouTubePopover:
 
     def refresh_preview(self):
         name = self.current_name()
+        is_file = self.source() == "file"
         ext = (self.info or {}).get("ext") or ".opus"
-        items = splitter.plan(name, self.opts(), ext)
-        notes = {"original": "original", "tuned": "tuned copy", "karaoke": "karaoke"}
-        prel = splitter.project_rel(name, self.opts())
-        if prel:     # the project sits in the song folder, above the stems folder
-            first_sub = next((i for i, (_, r, _) in enumerate(items) if "/" in r), len(items))
-            items = items[:first_sub] + [("project", prel, "")] + items[first_sub:]
-            notes["project"] = "project"
+        items = [("project", splitter.project_rel(name), "")] + splitter.plan(name, self.opts(), ext, local=is_file)
+        notes = {"project": "project", "original": "original", "tuned": "tuned copy", "karaoke": "karaoke · MP3 320"}
+        if len(items) == 1:
+            self.preview.configure(text="Choose what to make.")
+            return
         lines = [f"{name}\\"]
         width = max((len(r) for _, r, _ in items if "/" not in r), default=0) + 3
         folder_shown = False
@@ -417,10 +428,9 @@ class YouTubePopover:
                 if not folder_shown:
                     lines.append(f"   {sub}\\")
                     folder_shown = True
-                lines.append(f"      {fn}" + ("   project" if key == "project" else ""))
+                lines.append(f"      {fn}")
             else:
-                note = notes.get(key, "")
-                lines.append(f"   {rel.ljust(width)}{note}".rstrip())
+                lines.append(f"   {rel.ljust(width)}{notes.get(key, '')}".rstrip())
         self.preview.configure(text="\n".join(lines))
 
     @staticmethod
@@ -429,18 +439,30 @@ class YouTubePopover:
         return path if len(path) <= n else "…" + path[-(n - 1):]
 
     def toggle(self, key):
-        self.s[key] = not self.s[key]
+        if key == "original" and self.source() != "file":
+            return                                  # YouTube always keeps the original
+        out = self.s["out"]
+        out[key] = not out[key]
+        if key == "stems" and out[key]:
+            out["stems6"] = False
+        if key == "stems6" and out[key]:
+            out["stems"] = False
         self.save()
         self.refresh_setup()
 
-    def on_tune(self):
+    def toggle_tune(self, key):
+        if key == "original" and self.source() != "file":
+            return                                  # YouTube always keeps the Auto440 copy too
+        k = "stems" if key == "stems6" else key
+        self.s["tune"][k] = not self.s["tune"][k]
         self.save()
         self.refresh_setup()
 
     def change_folder(self):
-        d = filedialog.askdirectory(parent=self.root, initialdir=self.s["out_root"], title="Save downloads in")
+        d = filedialog.askdirectory(parent=self.root, initialdir=splitter.location(self.s),
+                                    title="Where should the song folder be created?")
         if d:
-            self.s["out_root"] = d
+            self.s["out_root"] = d                  # remembered as the new default location
             self.save()
             self.refresh_setup()
 
@@ -538,17 +560,19 @@ class YouTubePopover:
     # ----- suffix settings (cogwheel) -----
     def _build_suffixes(self):
         p = self.suf = ctk.CTkFrame(self.body, fg_color="transparent")
-        ctk.CTkLabel(p, text="Added after the file name. The original never gets a suffix.",
+        ctk.CTkLabel(p, text="Added after the song name, with a space. Karaoke is always a high-quality MP3 "
+                              "(320 kbps).",
                      font=font(13), text_color=MUTED, anchor="w", wraplength=420, justify="left").pack(
             fill="x", pady=(4, 10))
         grid = ctk.CTkFrame(p, fg_color="transparent")
         grid.pack(fill="x")
         grid.grid_columnconfigure((1, 3), weight=1)
         self.suf_vars = {}
-        keys = ["karaoke", "vocals", "drums", "bass", "guitar", "piano", "other", "tune"]
+        keys = ["original", "tune", "karaoke", "vocals", "drums", "bass", "guitar", "piano", "other"]
+        names = dict(splitter.LABELS, tune="Auto 440")
         for i, k in enumerate(keys):
             r, c = i // 2, (i % 2) * 2
-            ctk.CTkLabel(grid, text=splitter.LABELS[k], font=font(12), text_color=TEXT2, width=70,
+            ctk.CTkLabel(grid, text=names[k], font=font(12), text_color=TEXT2, width=70,
                          anchor="w").grid(row=r, column=c, sticky="w", padx=(0, 6), pady=4)
             v = tk.StringVar(value=self.s["suffixes"][k])
             ctk.CTkEntry(grid, textvariable=v, height=32, font=font(12, mono=True), fg_color=FIELD,
@@ -559,7 +583,7 @@ class YouTubePopover:
         self.folder_var = tk.StringVar(value=self.s["stems_folder"])
         ctk.CTkEntry(p, textvariable=self.folder_var, height=34, font=font(12, mono=True), fg_color=FIELD,
                      border_color=BORDER2, text_color=TEXT).pack(fill="x")
-        self.section(p, "FORMAT FOR KARAOKE, STEMS & TUNED COPIES")
+        self.section(p, "FORMAT FOR STEMS & THE AUTO440 COPY")
         self.fmt = ctk.CTkSegmentedButton(p, values=["FLAC", "WAV", "MP3 320", "Opus 256"], height=36,
                                           font=font(13), selected_color=ACCENT_SEL,
                                           selected_hover_color=ACCENT_SEL_HOVER, unselected_color=BTN,
@@ -586,8 +610,8 @@ class YouTubePopover:
 
     def suffixes_done(self):
         for k, v in self.suf_vars.items():
-            self.s["suffixes"][k] = v.get()
-        self.s["stems_folder"] = self.folder_var.get().strip() or "{name} stems"
+            self.s["suffixes"][k] = v.get().strip() or splitter.DEFAULTS["suffixes"][k]
+        self.s["stems_folder"] = self.folder_var.get().strip() or splitter.DEFAULTS["stems_folder"]
         self.s["fmt"] = {"MP3 320": "MP3", "Opus 256": "OPUS"}.get(self.fmt.get(), self.fmt.get())
         self.save()
         self.show("setup")
@@ -626,17 +650,18 @@ class YouTubePopover:
             return
         self.work_name.configure(text=job.result["name"] if job.result else (job.name or self.current_name()))
         if self.work.winfo_ismapped():
-            self.title.configure(text=("Splitting…" if job.local else "Downloading…") if job.running else "Split a song")
+            self.title.configure(text=("Splitting…" if job.local else "Downloading…") if job.running else "Split song")
         for k, (f, dot, lbl, meta, bar) in self.step_rows.items():
             f.pack_forget()
         for k in job.steps:
             f, dot, lbl, meta, bar = self.step_rows[k]
             f.pack(fill="x", pady=4, before=self.work_msg)
             prog = job.progress.get(k, 0.0)
-            if k == "split" and job.opts["stems"]:
-                lbl.configure(text="Split into stems" + (" + karaoke" if job.opts["karaoke"] else ""))
-            elif k == "split":
-                lbl.configure(text="Make the karaoke version")
+            if k == "split":
+                out, _ = splitter.effective(job.opts, job.local)
+                n = 6 if out["stems6"] else 4 if out["stems"] else 0
+                lbl.configure(text=f"Split with AI ({n} stems" + (" + karaoke)" if out["karaoke"] else ")")
+                              if n else "Split with AI (karaoke)")
             elif k == "download":
                 lbl.configure(text=job.step_text(k))
             started = k in job.progress
@@ -702,7 +727,8 @@ class YouTubePopover:
         job = self.app.yt_job
         if not job or not job.result:
             return
-        target = job.result["files"]["original"]
+        r = job.result
+        target = r["project"] or r["files"].get("original") or r["folder"]
         try:
             if sys.platform == "win32":
                 subprocess.Popen(["explorer", "/select,", str(target)])

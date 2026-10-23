@@ -743,11 +743,13 @@ def run(app, out_dir):
         yield 0.5
         pop = app.yt_pop
         assert pop.is_open() and app.yt_btn.cget("text") == "Split…"
-        assert pop.title.cget("text") == "Split a song"
+        assert pop.title.cget("text") == "Split song"
         pop.set_source("youtube")
         yield 0.2
         assert pop.yt_row.winfo_ismapped() and not pop.file_row.winfo_ismapped()
-        assert pop.go.cget("text") == "Download"
+        assert pop.go.cget("text") == "DOWNLOAD" and "always kept" in pop.tiles["original"][0].cget("text")
+        pop.toggle("original")                      # YouTube: the original can't be unticked
+        assert splitter.effective(pop.s, False)[0]["original"]
         pop.set_source("file")                      # Split a file on this computer
         yield 0.2
         assert pop.file_row.winfo_ismapped() and not pop.yt_row.winfo_ismapped() and pop.drop_tip.winfo_ismapped()
@@ -758,24 +760,33 @@ def run(app, out_dir):
         assert pop.info and pop.info.get("title") == "Smoke Song source", pop.info
         assert pop.info.get("duration", 0) > 1 and "from this computer" in pop.info_sub.cget("text"), pop.info
         pop.name_var.set("Smoke Song")
-        pop.s.update(karaoke=True, stems=True, out_root=str(out / "yt"))
-        pop.tune_var.set(True)
-        pop.tuned_var.set(True)
+        pop.s.update(out_root=str(out / "yt"))
+        pop.s["out"] = {"original": True, "karaoke": True, "stems": True, "stems6": False}
+        pop.s["tune"] = {"original": True, "karaoke": True, "stems": True}
+        pop.toggle("stems6")                        # Stems ×6 replaces Stems
+        assert pop.s["out"]["stems6"] and not pop.s["out"]["stems"]
         pop.ws_var.set(True)
         pop.refresh_setup()
-        assert pop.go.cget("text") == "Split" and pop.orig_note.cget("text") == "copied, untouched"
+        assert pop.go.cget("text") == "SPLIT" and "a copy" in pop.tiles["original"][0].cget("text")
+        shown = [k for k, b in pop.tune_btns.items() if b.winfo_ismapped()]
+        yield 0.2
+        shown = [k for k, b in pop.tune_btns.items() if b.winfo_ismapped()]
+        assert shown == ["original", "karaoke", "stems6"], shown          # one Auto 440 button per download
+        pop.toggle_tune("karaoke")
+        assert not pop.s["tune"]["karaoke"]
+        pop.toggle_tune("karaoke")
+        assert "Desktop" not in splitter.location(pop.s) and pop.loc_lbl.cget("text").strip().endswith("yt")
         pop.cog.invoke()
         yield 0.3
         assert pop.suf.winfo_ismapped()
-        pop.suf_vars["karaoke"].set("_NoVox")
+        pop.suf_vars["karaoke"].set("KARAOKE")
         pop.fmt.set("FLAC")
         pop.suffixes_done()
         yield 0.3
         txt = pop.preview.cget("text")
-        assert pop.kar_note.winfo_ismapped(), "karaoke + stems notice missing"
-        assert "Smoke Song.nish" in pop.preview.cget("text")
-        for want in ("Smoke Song.wav", "Smoke Song_440hz.flac", "Smoke Song_NoVox_440hz.flac",
-                     "Smoke Song stems", "Smoke Song_VOX_440hz.flac"):
+        assert txt.splitlines()[1].strip().startswith("~Smoke Song.nish"), txt     # project at the top
+        for want in ("Smoke Song Original.wav", "Smoke Song Auto440.flac", "Smoke Song KARAOKE Auto440.mp3",
+                     "Separated Stems - Smoke Song", "Smoke Song VOX Auto440.flac", "Smoke Song KEYS Auto440.flac"):
             assert want in txt, (want, txt)
         log("ok: Split popover: YouTube link or a file (Browse or drop), name, karaoke + stems, Auto 440 + "
             "tuned copy, suffixes, folder preview")
@@ -793,7 +804,7 @@ def run(app, out_dir):
                 break
             yield 0.1
         assert f.winfo_ismapped() and f.winfo_y() < 200, "download step not visible"
-        assert lbl.cget("text") == "Copy the original" and pop.title.cget("text") == "Splitting…", (
+        assert lbl.cget("text") == "Read the file" and pop.title.cget("text") == "Splitting…", (
             lbl.cget("text"), pop.title.cget("text"))
         log("ok: progress view shows the steps at once, scrolled to the top")
         shot("3b-youtube-working")
@@ -821,7 +832,7 @@ def run(app, out_dir):
             if not os.environ.get("NISH_FAKE_SPLIT"):
                 assert Path(torch.hub.get_dir()).resolve() == splitter.MODELS_DIR.resolve(), torch.hub.get_dir()
             log(f"ok: AI models bundled with the app: {have}")
-        assert len(made) == 10 and "Smoke Song.nish" in made, made
+        assert len(made) == 10 and "~Smoke Song.nish" in made and "Smoke Song KARAOKE Auto440.mp3" in made, made
         t0 = time.time()
         while len(app.lanes) < 6:
             assert time.time() - t0 < 60, "stems were not added to the workspace"
@@ -832,7 +843,7 @@ def run(app, out_dir):
             if app.project_path:
                 break
             yield 0.1
-        assert app.project_path and Path(app.project_path).name == "Smoke Song.nish", app.project_path
+        assert app.project_path and Path(app.project_path).name == "~Smoke Song.nish", app.project_path
         assert not app.is_dirty() and project.recent()[0] == str(Path(app.project_path).resolve())
         yield 0.5
         shot("4-youtube-done")
@@ -878,7 +889,8 @@ def yt_selftest(url, out_dir):
     try:
         info = splitter.fetch_info(url)
         o = splitter.default_settings()
-        o.update(karaoke=False, stems=False, tune=False, out_root=str(out))
+        o["out"] = {"original": True, "karaoke": False, "stems": False, "stems6": False}
+        o["out_root"] = str(out)
         res = splitter.run(url, "", o)
         p = res["files"]["original"]
         report.write_text(f"ok: '{info['title']}' {info['quality']} -> {p.name} "

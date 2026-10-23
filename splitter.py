@@ -1,12 +1,13 @@
-"""Add from YouTube: download the original, optionally make a karaoke version and stems
-(AI separation with Demucs, the same engine as NiSH Stem Splitter) and tune them to A440.
+"""Split song: a YouTube link or a file on this computer -> a song folder with the original,
+an Auto440 copy, a karaoke MP3 and/or stems (AI separation with Demucs), plus a project file.
 
-Folder layout (suffixes are configurable):
-    <out_root>/<Name>/<Name>.<ext>                 original, not re-encoded (Opus saved as .opus)
-    <out_root>/<Name>/<Name>.nish                  project (when karaoke or stems are made)
-    <out_root>/<Name>/<Name>_440hz.flac            tuned copy of the original (optional)
-    <out_root>/<Name>/<Name>_NoVox[_440hz].flac    karaoke (optional)
-    <out_root>/<Name>/<Name> stems/<Name>_VOX[_440hz].flac ... (optional)
+Folder layout (suffixes are configurable, added after the name with a space):
+    <location>/<Name>/~<Name>.nish                          project (sorts to the top)
+    <location>/<Name>/<Name> Original.<ext>                  original, not re-encoded (Opus saved as .opus)
+    <location>/<Name>/<Name> Auto440.flac                    the original tuned to A = 440 Hz
+    <location>/<Name>/<Name> KARAOKE[ Auto440].mp3           karaoke, always MP3 320
+    <location>/<Name>/Separated Stems - <Name>/<Name> VOX[ Auto440].flac ...   4 or 6 stems
+YouTube imports always keep the original and its Auto440 copy.
 """
 import copy
 import json
@@ -22,22 +23,34 @@ import numpy as np
 import engine
 import tuning
 
-SETTINGS_FILE = engine.DATA_DIR / "youtube.json"
+SETTINGS_FILE = engine.DATA_DIR / "split.json"
 SIX = ["vocals", "drums", "bass", "guitar", "piano", "other"]
+FOUR = ["vocals", "drums", "bass", "other"]
 LABELS = {"vocals": "Vocals", "drums": "Drums", "bass": "Bass", "guitar": "Guitar", "piano": "Piano",
-          "other": "Other", "karaoke": "Karaoke", "tune": "Auto 440"}
+          "other": "Other", "karaoke": "Karaoke", "original": "Original", "tuned": "Original 440 Hz"}
+OUTPUTS = ["original", "karaoke", "stems", "stems6"]
+MODEL_BEST = "htdemucs_ft"     # fine-tuned: the best Demucs model for vocals/drums/bass/other
+MODEL_SIX = "htdemucs_6s"      # the only Demucs model with guitar and piano
+
+
+def _desktop():
+    try:
+        import settings
+        return settings.desktop()
+    except Exception:
+        return str(Path.home() / "Desktop")
+
+
 DEFAULTS = {
-    "suffixes": {"karaoke": "_NoVox", "vocals": "_VOX", "drums": "_DRM", "bass": "_BASS",
-                 "guitar": "_GTR", "piano": "_KEYS", "other": "_MISC", "tune": "_440hz"},
-    "stems_folder": "{name} stems",
-    "fmt": "FLAC",
-    "out_root": str(Path.home() / "Music" / "NiSH Player"),
-    "karaoke": True,
-    "stems": True,
-    "tune": False,
-    "tuned_original": True,
+    "suffixes": {"original": "Original", "tune": "Auto440", "karaoke": "KARAOKE", "vocals": "VOX",
+                 "drums": "DRM", "bass": "BASS", "guitar": "GTR", "piano": "KEYS", "other": "MISC"},
+    "stems_folder": "Separated Stems - {name}",
+    "fmt": "FLAC",              # stems and the Auto440 copy (karaoke is always MP3 320)
+    "out_root": "",             # '' = the Desktop
+    "out": {"original": True, "karaoke": False, "stems": False, "stems6": True},
+    "tune": {"original": True, "karaoke": True, "stems": True},
     "workspace": True,
-    "source": "youtube",       # the Split dialog: "youtube" (a link) or "file" (a file on this computer)
+    "source": "youtube",        # "youtube" (a link) or "file" (a file on this computer)
 }
 FORMATS = {"FLAC": ".flac", "WAV": ".wav", "MP3": ".mp3", "OPUS": ".opus"}
 HEADROOM = 0.891  # -1 dBFS: the loudest output peak is brought down to this (never boosted)
@@ -60,15 +73,35 @@ def load_settings():
     except Exception:
         return s
     for k, v in saved.items():
-        if k == "suffixes" and isinstance(v, dict):
+        if isinstance(s.get(k), dict) and isinstance(v, dict):
             for sk, sv in v.items():
-                if sk in s["suffixes"] and isinstance(sv, str):
-                    s["suffixes"][sk] = sv
+                if sk in s[k] and isinstance(sv, type(s[k][sk])):
+                    s[k][sk] = sv
         elif k in s and isinstance(v, type(s[k])):
             s[k] = v
     if s["fmt"] not in FORMATS:
         s["fmt"] = "FLAC"
+    if s["out"]["stems"] and s["out"]["stems6"]:
+        s["out"]["stems"] = False
     return s
+
+
+def location(opts):
+    """Where song folders are created (the Desktop unless the user picked another place)."""
+    return opts.get("out_root") or _desktop()
+
+
+def effective(opts, local):
+    """(outputs, tune flags) as they will really be used. YouTube always keeps the original and
+    its Auto440 copy; Stems and Stems x6 exclude each other."""
+    out = dict(opts["out"])
+    tune = dict(opts["tune"])
+    if not local:
+        out["original"] = True
+        tune["original"] = True
+    if out.get("stems6"):
+        out["stems"] = False
+    return out, tune
 
 
 def save_settings(s):
@@ -89,42 +122,58 @@ def sanitize(name, limit=80):
     return s[:limit].rstrip(". ") or "track"
 
 
-def plan(name, opts, orig_ext=".opus"):
+def _n(name, *parts):
+    return " ".join([name] + [p for p in parts if p])
+
+
+def plan(name, opts, orig_ext=".opus", local=False, tuned=True):
     """What will be written, as [(key, relative path, label)] in display order.
 
-    opts: settings dict (karaoke, stems, tune, tuned_original, suffixes, stems_folder, fmt)."""
+    tuned=False: Auto 440 couldn't be used (no tuning detected), so nothing gets the Auto440 tag."""
     sfx = opts["suffixes"]
     ext = FORMATS.get(opts["fmt"], ".flac")
-    t = sfx["tune"] if opts["tune"] else ""
-    out = [("original", f"{name}{orig_ext}", name)]
-    if opts["tune"] and opts["tuned_original"]:
-        out.append(("tuned", f"{name}{sfx['tune']}{ext}", "Original 440 Hz"))
-    if opts["karaoke"]:
-        out.append(("karaoke", f"{name}{sfx['karaoke']}{t}{ext}", "Karaoke"))
-    if opts["stems"]:
+    out, tune = effective(opts, local)
+    T = lambda k: sfx["tune"] if (tuned and tune.get(k)) else ""
+    items = []
+    if out["original"]:
+        items.append(("original", _n(name, sfx["original"]) + orig_ext, "Original"))
+        if tuned and tune["original"]:
+            items.append(("tuned", _n(name, sfx["tune"]) + ext, LABELS["tuned"]))
+    if out["karaoke"]:
+        items.append(("karaoke", _n(name, sfx["karaoke"], T("karaoke")) + ".mp3", "Karaoke"))
+    keys = SIX if out["stems6"] else FOUR if out["stems"] else []
+    if keys:
         folder = sanitize(opts["stems_folder"].replace("{name}", name), limit=100)
-        for k in SIX:
-            out.append((k, f"{folder}/{name}{sfx[k]}{t}{ext}", LABELS[k]))
-    return out
+        for k in keys:
+            items.append((k, f"{folder}/" + _n(name, sfx[k], T("stems")) + ext, LABELS[k]))
+    return items
 
 
-def project_rel(name, opts):
-    """Where the YouTube import saves its project (relative to the song folder), or None.
-    Always in the song's main folder, next to the original."""
-    if opts["stems"] or opts["karaoke"]:
-        return f"{name}.nish"
+def project_rel(name, opts=None):
+    """The project file in the song folder; '~' keeps it at the top of the folder."""
+    return f"~{name}.nish"
+
+
+def model_for(opts, local=False):
+    """Which AI runs, or None: always the best one for the choice."""
+    out, _ = effective(opts, local)
+    if out["stems6"]:
+        return MODEL_SIX
+    if out["stems"] or out["karaoke"]:
+        return MODEL_BEST
     return None
 
 
-def workspace_keys(opts):
+def workspace_keys(opts, local=False):
     """Which of the written files go into the player."""
-    if opts["stems"]:
+    out, _ = effective(opts, local)
+    if out["stems6"]:
         return SIX
-    if opts["karaoke"]:
+    if out["stems"]:
+        return FOUR
+    if out["karaoke"]:
         return ["karaoke"]
-    if opts["tune"] and opts["tuned_original"]:
-        return ["tuned"]
-    return ["original"]
+    return ["tuned", "original"]       # the tuned copy if there is one, else the original
 
 
 # ---------- YouTube ----------
@@ -312,100 +361,126 @@ SEPARATOR = None  # tests can swap in a stand-in for the AI
 
 
 def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: None, separator=None):
-    """source: YouTube link or a local file. name: '' = use the video title.
+    """source: YouTube link or a local file. name: '' = use the video title / file name.
 
     stage(key, frac) reports progress for 'download', 'split', 'tune', 'save'.
-    Returns {"folder", "files": {key: path}, "load": [(path, label)], "tuning": text}."""
-    opts = dict(opts)
-    out_root = Path(opts["out_root"])
+    Returns {"folder", "files": {key: path}, "load": [(path, label)], "tuning": text, "name", "project"}."""
+    opts = copy.deepcopy(opts)
+    local = os.path.isfile(source)
+    out, tune = effective(opts, local)
+    if not any(out.values()):
+        raise RuntimeError("Choose what to make first.")
+    root = Path(location(opts))
+    sfx = opts["suffixes"]
     work = Path(tempfile.mkdtemp(prefix="nish_"))
+    files = {}
     try:
-        # 1. the original, exactly as downloaded
+        # 1. the original
         stage("download", 0.0)
-        if os.path.isfile(source):
-            title = Path(source).stem
-            name = sanitize(name or title)
-            folder = out_root / name
+        if local:
+            name = sanitize(name or Path(source).stem)
+            folder = root / name
             folder.mkdir(parents=True, exist_ok=True)
-            orig = folder / (name + Path(source).suffix.lower())
-            if Path(source).resolve() != orig.resolve() and not orig.exists():
-                shutil.copy2(source, orig)
+            src = Path(source)
+            if out["original"]:
+                orig = folder / (_n(name, sfx["original"]) + src.suffix.lower())
+                if src.resolve() != orig.resolve() and not orig.exists():
+                    shutil.copy2(src, orig)
+                files["original"] = orig
+            else:
+                orig = src                                   # used for the split, not copied
         else:
             if not name:
                 name = fetch_info(source)["title"]
             name = sanitize(name)
-            folder = out_root / name
+            folder = root / name
             folder.mkdir(parents=True, exist_ok=True)
-            orig = download(source, folder, name, lambda p: stage("download", p), check_cancel, work=work)
+            orig = download(source, folder, _n(name, sfx["original"]), lambda p: stage("download", p),
+                            check_cancel, work=work)
+            files["original"] = orig
         if not orig.exists() or orig.stat().st_size == 0:
             raise RuntimeError("The original audio couldn't be saved in the song folder.")
         stage("download", 1.0)
         check_cancel()
 
-        items = plan(name, opts, orig.suffix.lower())
-        files = {"original": orig}
-        want = [k for k, _, _ in items if k != "original"]
-        audio = engine.decode(orig) if want else None
+        model = model_for(opts, local)
+        want_tune = any(tune.get(k) for k, on in out.items() if on and k != "stems6") or \
+            (out["stems6"] and tune.get("stems"))
+        need_audio = model or (out["original"] and tune["original"])
+        audio = engine.decode(orig) if need_audio else None
 
-        # 2. AI split
+        # 2. AI split (one run: the best model for the choice)
         sep = {}
-        if opts["karaoke"] or opts["stems"]:
+        if model:
             stage("split", 0.0)
-            model = "htdemucs_6s" if opts["stems"] else "htdemucs"
             sep = (separator or SEPARATOR or demucs_separate)(audio, model, lambda p: stage("split", p), check_cancel)
             stage("split", 1.0)
             check_cancel()
         outputs = {}
-        if opts["stems"]:
-            for k in SIX:
-                outputs[k] = sep.get(k, np.zeros_like(audio))
-        if opts["karaoke"]:
+        keys = SIX if out["stems6"] else FOUR if out["stems"] else []
+        for k in keys:
+            outputs[k] = sep.get(k, np.zeros_like(audio))
+        if out["karaoke"]:
             outputs["karaoke"] = sum(v for k, v in sep.items() if k != "vocals")
-        if opts["tune"] and opts["tuned_original"]:
+        if out["original"] and tune["original"]:
             outputs["tuned"] = audio
 
         # 3. Auto 440 (measured on the tonal parts when we have them)
         tuning_text = ""
-        if opts["tune"] and outputs:
+        tuned = False
+        group = lambda k: "original" if k == "tuned" else "karaoke" if k == "karaoke" else "stems"
+        if want_tune and outputs:
             stage("tune", 0.0)
             tonal = [v for k, v in sep.items() if k != "drums"] or [audio]
             mono = sum(v.mean(axis=1) for v in tonal)
             offset, conf = tuning.estimate_offset_cents(mono, engine.SR)
             corr = tuning.correction_cents(offset, conf)
+            detected = offset is not None and conf >= 0.12
             if corr:
+                tuned = True
                 tuning_text = f"Recording measured {offset:+.0f} cents from A440, corrected by {corr:+.0f}."
-                keys = list(outputs)
-                for i, k in enumerate(keys):
+                todo = [k for k in outputs if tune.get(group(k))]
+                for i, k in enumerate(todo):
                     check_cancel()
                     outputs[k] = engine.render(outputs[k], 1.0, 0, cents=corr)   # varispeed
-                    stage("tune", (i + 1) / len(keys))
+                    stage("tune", (i + 1) / len(todo))
+            elif detected:
+                tuned = True
+                tuning_text = "Already at A440."
             else:
-                tuning_text = ("Already at A440." if offset is not None and conf >= 0.12
-                               else "Couldn't detect the tuning clearly, so nothing was changed.")
+                tuning_text = "Couldn't detect the tuning clearly, so nothing was tuned."
             stage("tune", 1.0)
+        if not tuned:
+            outputs.pop("tuned", None)        # no Auto440 copy when the tuning couldn't be found
 
         # 4. save (one shared gain for headroom, so the stems still add up to the song)
+        items = plan(name, opts, orig.suffix.lower(), local=local, tuned=tuned)
+        rel = {k: r for k, r, _ in items}
+        labels = {k: lbl for k, _, lbl in items}
         stage("save", 0.0)
         peak = max((float(np.abs(v).max()) for v in outputs.values() if v.size), default=0.0)
         gain = min(1.0, HEADROOM / peak) if peak > HEADROOM else 1.0
-        rel = {k: r for k, r, _ in items}
         for i, k in enumerate(outputs):
             check_cancel()
             dst = folder / rel[k]
             dst.parent.mkdir(parents=True, exist_ok=True)
-            engine._encode(outputs[k] * gain, dst, opts["fmt"])
+            engine._encode(outputs[k] * gain, dst, "MP3" if k == "karaoke" else opts["fmt"])
             files[k] = dst
             stage("save", (i + 1) / len(outputs))
         stage("save", 1.0)
-        labels = {k: lbl for k, _, lbl in items}
-        load = [(files[k], labels[k]) for k in workspace_keys(opts) if k in files]
+        load = []
+        for k in workspace_keys(opts, local):
+            if k in files:
+                load.append((files[k], labels.get(k, name)))
+                if k == "tuned":
+                    break                         # the tuned copy instead of the original
         proj = None
-        rel_p = project_rel(name, opts)
-        if rel_p and load:
+        if load:
             import project
             try:   # a project in the song folder, so the song can be opened again later
-                proj = project.save(folder / rel_p, project.new_state(load))
+                proj = project.save(folder / project_rel(name), project.new_state(load))
             except Exception:
+                traceback.print_exc()
                 proj = None
         return {"folder": folder, "files": files, "load": load, "tuning": tuning_text, "name": name,
                 "project": proj}

@@ -219,6 +219,10 @@ def icon(name, color, size=16):
         d.line([(10 * u, 17.5 * u), (10 * u, 11.5 * u), (15 * u, 10.5 * u), (15 * u, 16.5 * u)], fill=color, width=w)
         d.ellipse([7.7 * u, 16.2 * u, 10.3 * u, 18.8 * u], fill=color)
         d.ellipse([12.7 * u, 15.2 * u, 15.3 * u, 17.8 * u], fill=color)
+    elif name == "folder":
+        u = S / 24
+        d.line([(3 * u, 7 * u), (3 * u, 19 * u), (21 * u, 19 * u), (21 * u, 8.5 * u), (11.5 * u, 8.5 * u),
+                (9.5 * u, 5.5 * u), (3 * u, 5.5 * u), (3 * u, 7 * u)], fill=color, width=w, joint="curve")
     elif name == "wave":          # waveform bars (like the logo)
         for x, h in ((4, 4), (8, 12), (12, 18), (16, 10), (20, 4)):
             d.line([(x * S / 24, (12 - h / 2) * S / 24), (x * S / 24, (12 + h / 2) * S / 24)], fill=color, width=w)

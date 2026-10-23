@@ -47,68 +47,91 @@ def main():
 
     # plan / names
     o = splitter.default_settings()
-    o.update(tune=True, tuned_original=True, fmt="FLAC")
+    o.update(fmt="FLAC")
+    o["out"] = {"original": True, "karaoke": True, "stems": False, "stems6": True}
+    o["tune"] = {"original": True, "karaoke": True, "stems": True}
     names = [r for _, r, _ in splitter.plan("My Song", o, ".opus")]
-    assert names == ["My Song.opus", "My Song_440hz.flac", "My Song_NoVox_440hz.flac",
-                     "My Song stems/My Song_VOX_440hz.flac", "My Song stems/My Song_DRM_440hz.flac",
-                     "My Song stems/My Song_BASS_440hz.flac", "My Song stems/My Song_GTR_440hz.flac",
-                     "My Song stems/My Song_KEYS_440hz.flac", "My Song stems/My Song_MISC_440hz.flac"], names
+    assert names == ["My Song Original.opus", "My Song Auto440.flac", "My Song KARAOKE Auto440.mp3",
+                     "Separated Stems - My Song/My Song VOX Auto440.flac",
+                     "Separated Stems - My Song/My Song DRM Auto440.flac",
+                     "Separated Stems - My Song/My Song BASS Auto440.flac",
+                     "Separated Stems - My Song/My Song GTR Auto440.flac",
+                     "Separated Stems - My Song/My Song KEYS Auto440.flac",
+                     "Separated Stems - My Song/My Song MISC Auto440.flac"], names
+    assert splitter.project_rel("My Song") == "~My Song.nish"
+    assert splitter.model_for(o) == "htdemucs_6s"
     o2 = splitter.default_settings()
-    o2.update(stems=False, tune=False, fmt="MP3")
-    o2["suffixes"]["karaoke"] = " (karaoke)"
-    assert [r for _, r, _ in splitter.plan("A", o2, ".webm")] == ["A.webm", "A (karaoke).mp3"]
-    assert splitter.workspace_keys(o) == splitter.SIX and splitter.workspace_keys(o2) == ["karaoke"]
+    o2.update(fmt="WAV")
+    o2["out"] = {"original": False, "karaoke": True, "stems": True, "stems6": False}
+    o2["tune"] = {"original": False, "karaoke": False, "stems": True}
+    assert [r for _, r, _ in splitter.plan("A", o2, ".wav", local=True)] == [
+        "A KARAOKE.mp3", "Separated Stems - A/A VOX Auto440.wav", "Separated Stems - A/A DRM Auto440.wav",
+        "Separated Stems - A/A BASS Auto440.wav", "Separated Stems - A/A MISC Auto440.wav"]
+    assert splitter.model_for(o2, local=True) == "htdemucs_ft"
+    # YouTube always keeps the original and its Auto440 copy, even when unticked
+    assert [r for _, r, _ in splitter.plan("A", o2, ".opus")][:2] == ["A Original.opus", "A Auto440.wav"]
+    assert splitter.workspace_keys(o) == splitter.SIX and splitter.workspace_keys(o2) == splitter.FOUR
     assert splitter.sanitize('a/b:c?*"d".  ') == "abcd"
-    ok("file plan, suffixes and names")
+    ok("file plan, names, models (best for each choice), YouTube keeps the original")
 
-    # full job: original + tuned copy + karaoke + 6 stems, Auto 440
+    # full job from a file: original + Auto440 copy + karaoke MP3 + 6 stems
     stages = []
     o["out_root"] = str(tmp / "out")
     res = splitter.run(str(src), "My Song", o, stage=lambda k, f: stages.append(k), separator=sep)
     folder = tmp / "out" / "My Song"
     assert res["folder"] == folder
-    assert (folder / "My Song.m4a").exists(), list(folder.iterdir())
-    for _, rel, _ in splitter.plan("My Song", o, ".m4a"):
-        assert (folder / rel).exists(), rel
+    for _, rel, _ in splitter.plan("My Song", o, ".m4a", local=True):
+        assert (folder / rel).exists(), (rel, sorted(str(p.relative_to(folder)) for p in folder.rglob("*")))
     assert [s for s in dict.fromkeys(stages)] == ["download", "split", "tune", "save"], stages
     assert "corrected by +1" in res["tuning"], res["tuning"]
-    a = engine.decode(folder / "My Song_NoVox_440hz.flac")
+    kar = folder / "My Song KARAOKE Auto440.mp3"
+    import subprocess
+    info = subprocess.run([engine.ffmpeg_exe(), "-hide_banner", "-i", str(kar)], capture_output=True,
+                          text=True).stderr
+    assert "Audio: mp3" in info and "320 kb/s" in info, info
+    a = engine.decode(kar)
     off, conf = tuning.estimate_offset_cents(a.mean(1), SR)
     assert abs(off) < 4, off
-    a = engine.decode(folder / "My Song_440hz.flac")
+    a = engine.decode(folder / "My Song Auto440.flac")
     off, _ = tuning.estimate_offset_cents(a.mean(1), SR)
     assert abs(off) < 4, off
-    orig = engine.decode(folder / "My Song.m4a")
+    orig = engine.decode(folder / "My Song Original.m4a")
     off, _ = tuning.estimate_offset_cents(orig.mean(1), SR)
     assert abs(off + 12.6) < 3, off  # original untouched
-    peaks = [float(np.abs(engine.decode(p)).max()) for p in (folder / "My Song stems").iterdir()
-             if p.suffix != ".nish"]
+    stems = folder / "Separated Stems - My Song"
+    peaks = [float(np.abs(engine.decode(p)).max()) for p in stems.iterdir()]
     assert max(peaks) <= 0.97, peaks
     assert [lbl for _, lbl in res["load"]] == ["Vocals", "Drums", "Bass", "Guitar", "Piano", "Other"]
-    # karaoke is saved but not loaded with the stems; the project sits in the song's main folder
-    assert res["project"] == folder / "My Song.nish" and res["project"].exists()
+    assert res["project"] == folder / "~My Song.nish" and res["project"].exists()
     import project
     st, missing = project.load(res["project"])
     assert not missing and [t["name"] for t in st["tracks"]] == ["Vocals", "Drums", "Bass", "Guitar", "Piano",
                                                                  "Other"]
-    assert all(json_t["file"].replace("\\", "/").startswith("My Song stems/") for json_t in __import__("json").loads(
-        res["project"].read_text(encoding="utf-8"))["tracks"])          # relative to the song folder
     ok(f"full job: {len(list(folder.rglob('*.*')))} files, {res['tuning']}")
 
-    # karaoke only, no tuning, Opus; original only
+    # from a file, without copying the original: karaoke only (no Auto 440) -> loaded, project at the top
     o3 = splitter.default_settings()
-    o3.update(stems=False, karaoke=True, tune=False, fmt="OPUS", out_root=str(tmp / "out3"))
+    o3["out"] = {"original": False, "karaoke": True, "stems": False, "stems6": False}
+    o3["tune"] = {"original": False, "karaoke": False, "stems": False}
+    o3["out_root"] = str(tmp / "out3")
     res = splitter.run(str(src), "", o3, separator=sep)
     f = tmp / "out3" / "Some Video Title"
-    assert sorted(p.name for p in f.iterdir()) == ["Some Video Title.m4a", "Some Video Title.nish",
-                                                   "Some Video Title_NoVox.opus"]
-    assert res["load"][0][1] == "Karaoke" and res["project"] == f / "Some Video Title.nish"
+    assert sorted(p.name for p in f.iterdir()) == ["Some Video Title KARAOKE.mp3", "~Some Video Title.nish"]
+    assert res["load"][0][1] == "Karaoke" and res["project"] == f / "~Some Video Title.nish"
+    # original only (a copy), no tuning -> the original is loaded
     o4 = splitter.default_settings()
-    o4.update(stems=False, karaoke=False, tune=False, out_root=str(tmp / "out4"))
+    o4["out"] = {"original": True, "karaoke": False, "stems": False, "stems6": False}
+    o4["tune"] = {"original": False, "karaoke": False, "stems": False}
+    o4["out_root"] = str(tmp / "out4")
     res = splitter.run(str(src), "Plain", o4, separator=None)
-    assert [p.name for p in (tmp / "out4" / "Plain").iterdir()] == ["Plain.m4a"]
-    assert res["load"][0][1] == "Plain" and res["project"] is None
-    ok("karaoke-only as Opus, and original-only (no split)")
+    assert sorted(p.name for p in (tmp / "out4" / "Plain").iterdir()) == ["Plain Original.m4a", "~Plain.nish"]
+    assert res["load"][0][1] == "Original"
+    try:
+        splitter.run(str(src), "None", dict(o4, out={k: False for k in o4["out"]}), separator=None)
+        raise AssertionError("nothing chosen should be refused")
+    except RuntimeError:
+        pass
+    ok("karaoke only (MP3, original not copied), original only, nothing chosen is refused")
 
     # cancel
     def cancel():
