@@ -1,4 +1,5 @@
 """NiSH Player: a small multitrack player with speed, pitch, Auto 440 and export."""
+import gc
 import os
 import queue
 import sys
@@ -168,6 +169,7 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
     # ----- loop -----
     def _tick(self):
         try:
+            self._collect_garbage()
             self._handle_events()
             self._split_button_tick()
             if self.player.render_busy > 0:
@@ -185,6 +187,16 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
         except Exception:
             traceback.print_exc()
         self.root.after(33, self._tick)
+
+    def _collect_garbage(self):
+        """Python's garbage collector runs only here, on the main thread (run_gui turns the automatic
+        one off). Freed Tk objects (fonts, images) call into Tk; when the collector happened to run on a
+        background thread, that call waited for the main thread while the main thread waited for the
+        thread to start - and the app froze."""
+        if gc.get_count()[0] < gc.get_threshold()[0]:
+            return
+        self._gc_n = getattr(self, "_gc_n", 0) + 1
+        gc.collect(2 if self._gc_n % 100 == 0 else 1 if self._gc_n % 10 == 0 else 0)
 
     def _update_positions(self):
         frac = self.player.position()
@@ -410,6 +422,7 @@ def run_gui(files=(), smoketest_dir=None):
         except Exception:
             pass
     theme.set_mode(settings.get("theme", "dark"))     # dark unless the user picked light
+    gc.disable()        # garbage is collected on the main thread only (App._collect_garbage)
     root = make_root()
     app = App(root)
     if files:
