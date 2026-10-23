@@ -175,6 +175,19 @@ def workspace_keys(opts, local=False):
     return ["tuned", "original"]       # the tuned copy if there is one, else the original
 
 
+def song_folder_of(folder, opts=None):
+    """The song folder a stems folder belongs to, or None. Knows the current layout
+    (<Song>/Separated Stems - <Song>, or the stems folder name set with the cogwheel) and the one
+    before 1.6 (<Song>/<Song> stems)."""
+    d = Path(folder)
+    song = d.parent.name
+    if not song:
+        return None
+    pattern = (opts or load_settings())["stems_folder"]
+    names = {sanitize(pattern.replace("{name}", song), limit=100).lower(), f"{song} stems".lower()}
+    return d.parent if d.name.lower() in names else None
+
+
 # ---------- YouTube ----------
 
 def is_url(s):

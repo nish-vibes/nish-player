@@ -191,7 +191,7 @@ class LayoutMixin:
         self.lanes_box.grid_columnconfigure(0, weight=1)
         self.empty = ctk.CTkLabel(self.lanes_box, font=font(14), text_color=MUTED, justify="center",
                                   text="No tracks yet.\nDrop a song, a karaoke file or a set of stems "
-                                       "above — or click Open…")
+                                       "above — or click Open project")
 
     def _build_master(self, parent):
         box = ctk.CTkFrame(parent, fg_color=DECK, border_color=BORDER2, border_width=1, corner_radius=12)

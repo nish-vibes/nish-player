@@ -79,6 +79,17 @@ def main():
     assert splitter.sanitize('a/b:c?*"d".  ') == "abcd"
     ok("file plan, names, models (best for each choice), YouTube keeps the original")
 
+    # which song folder a stems folder belongs to (exports of loaded stems go there)
+    so = splitter.default_settings()
+    assert splitter.song_folder_of(Path("/m/My Song/Separated Stems - My Song"), so) == Path("/m/My Song")
+    assert splitter.song_folder_of(Path("/m/My Song/separated stems - my song"), so) == Path("/m/My Song")
+    assert splitter.song_folder_of(Path("/m/My Song/My Song stems"), so) == Path("/m/My Song")     # before 1.6
+    assert splitter.song_folder_of(Path("/m/My Song/Other"), so) is None
+    assert splitter.song_folder_of(Path("/m/Other/Separated Stems - My Song"), so) is None
+    so["stems_folder"] = "{name} parts"
+    assert splitter.song_folder_of(Path("/m/My Song/My Song parts"), so) == Path("/m/My Song")
+    ok("the song folder of a stems folder (current, custom and pre-1.6 names)")
+
     # full job from a file: original + Auto440 copy + karaoke MP3 + 6 stems
     stages = []
     o["out_root"] = str(tmp / "out")

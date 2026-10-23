@@ -33,8 +33,8 @@ class RecentMenu:
         self.rows = []
         items = project.recent()
         if not items:
-            ctk.CTkLabel(f, text="No saved projects yet. Save one with Save… (Ctrl+S); YouTube imports\n"
-                                 "with stems save one automatically.", font=font(12), text_color=MUTED,
+            ctk.CTkLabel(f, text="No saved projects yet. Save one with Save project (Ctrl+S);\n"
+                                 "Split saves one automatically.", font=font(12), text_color=MUTED,
                          justify="left", anchor="w").pack(fill="x", padx=18, pady=(2, 14))
         for p in items:
             self._row(p)
@@ -150,15 +150,15 @@ class ProjectMixin:
         self._update_title()
 
     def main_folder(self):
-        """The song's main folder, if there is one: the open project's folder, or for tracks in
-        '<Song>/<Song> stems/' (a YouTube import) the '<Song>' folder. Exports go there automatically."""
+        """The song's main folder, if there is one: the open project's folder, or for stems from a
+        song folder (<Song>/Separated Stems - <Song>/) the <Song> folder. Exports go there automatically."""
         if self.project_path:
             return str(Path(self.project_path).parent)
         dirs = {Path(l.track.path).resolve().parent for l in self.lanes if getattr(l.track, "path", None)}
         if len(dirs) == 1:
-            d = dirs.pop()
-            if d.name.lower().endswith(" stems") and d.parent.name and d.name.lower().startswith(d.parent.name.lower()):
-                return str(d.parent)
+            import splitter
+            song = splitter.song_folder_of(dirs.pop())
+            return str(song) if song else None
         return None
 
     def _update_title(self):
