@@ -8,3 +8,4 @@ venv/
 .venv/
 gui-smoke/
 models/
+pack/

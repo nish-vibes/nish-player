@@ -84,10 +84,18 @@ click **More info → Run anyway**.
   Desktop until you pick another folder with **Change…**; that folder then becomes your default.
 - **Theme**: dark by default. The cogwheel menu has a **Theme** button that switches between dark
   and light; the app remembers your choice.
-- **Updates** are always manual: the cogwheel in the top right shows your version and has
-  **Check for updates** → **Download**. When the download is done it says so, and **Close and update**
-  closes the app, swaps in the new version and starts it again; your settings (export folder, track names, Split settings) are kept
-  in `%LOCALAPPDATA%\NiSH Player` and are never touched. If YouTube downloads fail five times on
+- **Updates** are always manual: the cogwheel in the top right shows your version and the version
+  of its YouTube support, and has **Check for updates**. There are two kinds:
+  - **YouTube fixes** (about 3 MB): YouTube changes often, and the yt-dlp project that NiSH Player
+    uses to download from it follows within days. **Install YouTube fix** downloads only that part,
+    checks it, and uses it from the next YouTube download. No restart, and the app folder isn't
+    touched (fixes are kept in `%LOCALAPPDATA%\NiSH Player\youtube`). If a fix ever fails to
+    load, the app goes back to the one before it.
+  - **New versions** of the app (the full download, about 600 MB): **Download**, then **Close and
+    update** closes the app, swaps in the new version and starts it again.
+
+  Your settings (export folder, track names, Split settings) are kept in
+  `%LOCALAPPDATA%\NiSH Player` and are never touched. If YouTube downloads fail five times on
   one day, the cogwheel turns amber and suggests checking for an update.
 
 Keyboard: **Space** play/pause, **Home** back to the start, **Ctrl+S** save the project,
@@ -104,7 +112,10 @@ starts the app and clicks through every control, then zips it.
   publish too when `VERSION` is raised.
 - Other branches (e.g. `v2`) are built and tested but never published; the zip is kept as a
   build artifact for 14 days.
-- The build runs every Monday as well, so new YouTube fixes in yt-dlp get published automatically.
+- Every day the workflow checks for a new yt-dlp. If there is one, it builds and tests the app with
+  it, checks that the new YouTube pack loads in the built app, and publishes the pack on the
+  `youtube-pack` pre-release (`tools/build_youtube_pack.py` makes it; `ytpack.py` loads and installs
+  it). A YouTube fix needed right away: run the workflow by hand on `main` (Actions → Run workflow).
 
 Local run (needs Python 3.12 and ffmpeg with Rubber Band on PATH):
 
@@ -116,6 +127,7 @@ python tests/test_splitter.py
 python tests/test_updater.py
 python tests/test_colors.py
 python tests/test_compat.py
+python tests/test_ytpack.py
 python app.py --gui-smoketest <folder>
 ```
 
@@ -130,7 +142,8 @@ updates `theme.py` (`tests/test_colors.py` fails if they don't match).
 (projects), `lane.py` (one track), `widgets.py` (fader, switches, field hints), `export_dialog.py`,
 `split_ui.py` + `split_choices.py` (the Split dialog), `settings_menu.py` (cogwheel menu),
 `engine.py` (audio: decoding, playback, speed/pitch, export), `splitter.py` (download and AI split),
-`tuning.py` (Auto 440), `project.py` (.nish files), `settings.py`, `updater.py`, `instance.py`
+`tuning.py` (Auto 440), `ytpack.py` (YouTube support as a separately updated pack),
+`project.py` (.nish files), `settings.py`, `updater.py` (app updates), `instance.py`
 (one running app), `theme.py` (colours, fonts, icons), `smoketest.py` (the click-through test).
 
 Track names, settings, Split settings and the log file are stored in `%LOCALAPPDATA%\NiSH Player`.

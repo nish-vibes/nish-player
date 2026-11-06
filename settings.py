@@ -87,6 +87,13 @@ def note_yt_failure(today=None):
     return n
 
 
+def clear_yt_failures():
+    """A YouTube fix was installed: start counting failures again."""
+    data = _load()
+    data.pop("yt_failures", None)
+    _save(data)
+
+
 def yt_failures_today(today=None):
     today = today or datetime.date.today().isoformat()
     rec = get("yt_failures") or {}

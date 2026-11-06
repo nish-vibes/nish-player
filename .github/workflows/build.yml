@@ -7,8 +7,9 @@ on:
     branches: [main, "release/**", v2]
   workflow_dispatch:
   schedule:
-    # Weekly: rebuild with the newest yt-dlp so YouTube downloads keep working.
-    - cron: "41 4 * * 1"
+    # Daily: if there is a new yt-dlp, build and test it and publish it as a YouTube pack (~3 MB,
+    # see ytpack.py). Days without a new yt-dlp stop after a quick check.
+    - cron: "41 4 * * *"
 
 permissions:
   contents: write
@@ -18,7 +19,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check:
+    # Scheduled runs only build when yt-dlp has a version the published YouTube pack doesn't have.
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.c.outputs.go }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - id: c
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != "schedule" ]]; then echo "go=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          NEW=$(curl -fsS https://pypi.org/pypi/yt-dlp/json | python3 -c "import json,sys; print(json.load(sys.stdin)['info']['version'])")
+          CUR=$(gh release download youtube-pack --repo "$GITHUB_REPOSITORY" -p youtube-pack.json -O - 2>/dev/null \
+                | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo none)
+          GO=$(python3 -c "import re,sys; k=lambda v: tuple(int(x) for x in re.findall(r'\d+', v)); print('true' if k(sys.argv[1]) != k(sys.argv[2]) else 'false')" "$NEW" "$CUR")
+          echo "yt-dlp on PyPI: $NEW, published YouTube pack: $CUR -> build: $GO"
+          echo "go=$GO" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: check
+    if: needs.check.outputs.go == 'true'
     runs-on: windows-latest
     timeout-minutes: 150
     env:
@@ -42,7 +64,7 @@ jobs:
           pip install "ruff==0.16.*"
           ruff check --output-format github .
 
-      - name: Decide whether to publish a release
+      - name: Decide what to publish
         id: rel
         shell: bash
         run: |
@@ -50,16 +72,11 @@ jobs:
           YTV=$(python -c "import yt_dlp.version as v; print(v.__version__)")
           echo "ytdlp=$YTV" >> "$GITHUB_OUTPUT"
           echo "yt-dlp $YTV"
-          PUBLISH=false
+          PUBLISH=false        # a full release (the whole app): only when VERSION is new, on main or release/**
+          PACK=false           # the YouTube pack: from main, whenever its yt-dlp is new
           TAG="$V"
-          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
-            LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json body -q .body 2>/dev/null || true)
-            if [[ "$LATEST" != *"yt-dlp $YTV"* ]]; then
-              TAG="$V-yt$YTV"; PUBLISH=true
-              echo "New yt-dlp - publishing $TAG"
-            fi
-          elif [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" == refs/heads/release/* ]]; then
-            if ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" == refs/heads/release/* ]]; then
+            if [[ "$GITHUB_EVENT_NAME" != "schedule" ]] && ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               PUBLISH=true
               echo "New version $V - will publish a release if everything passes."
             fi
@@ -67,8 +84,17 @@ jobs:
             TAG="$V-dev"
             echo "Development build $TAG - kept as a build artifact, not published."
           fi
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            CUR=$(gh release download youtube-pack --repo "$GITHUB_REPOSITORY" -p youtube-pack.json -O - 2>/dev/null \
+                  | python -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo none)
+            if [[ "$CUR" != "$YTV" ]]; then
+              PACK=true
+              echo "YouTube pack $CUR -> $YTV - will publish it if everything passes."
+            fi
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "pack=$PACK" >> "$GITHUB_OUTPUT"
 
       - name: Download ffmpeg (with Rubber Band) and Deno (for YouTube)
         shell: pwsh
@@ -91,11 +117,14 @@ jobs:
           Get-ChildItem models/checkpoints | ForEach-Object { "{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
           if (-not (Get-ChildItem models/checkpoints -Filter *.th)) { throw "No AI models were downloaded" }
 
-      - name: Tests (engine, splitter, updater, colours, opening 1.6 projects)
+      - name: Make the YouTube pack (yt-dlp + its challenge solver, shipped beside the exe)
+        run: python tools/build_youtube_pack.py pack
+
+      - name: Tests (engine, splitter, updater, colours, opening 1.6 projects, YouTube pack)
         shell: pwsh
         run: |
           $env:PATH = "$PWD\vendor;$env:PATH"
-          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat") {
+          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat", "test_ytpack") {
             $out = python "tests/$t.py" 2>&1 | ForEach-Object { "$_" }
             $code = $LASTEXITCODE
             $out
@@ -111,6 +140,19 @@ jobs:
       - name: Stamp the release tag (the app compares it with the latest release)
         shell: pwsh
         run: Set-Content -NoNewline -Encoding utf8 dist\NiSHPlayer\build_tag.txt "${{ steps.rel.outputs.tag }}"
+
+      - name: The YouTube pack loads in the built app (the same pack is published)
+        shell: pwsh
+        run: |
+          $res = Join-Path $PWD "pack-check.txt"
+          $p = Start-Process -FilePath "dist\NiSHPlayer\NiSHPlayer.exe" -ArgumentList "--yt-pack-check", "dist\NiSHPlayer\_internal\youtube", $res -Wait -PassThru
+          $report = if (Test-Path $res) { Get-Content $res -Raw } else { "no result" }
+          Write-Output $report
+          if ($p.ExitCode -ne 0 -or $report -notmatch "^ok ") {
+            Write-Output ("::error title=youtube-pack::" + ($report -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'))
+            throw "The YouTube pack doesn't load in the built app"
+          }
+          Write-Output "::notice title=youtube-pack::$report"
 
       - name: GUI smoke test (opens the window and clicks through everything)
         shell: pwsh
@@ -176,3 +218,23 @@ jobs:
           body: "Built with yt-dlp ${{ steps.rel.outputs.ytdlp }}."
           make_latest: true
           files: NiSHPlayer-windows.zip
+
+      - name: Publish the YouTube pack
+        if: steps.rel.outputs.pack == 'true'
+        shell: bash
+        run: |
+          R=youtube-pack
+          YTV="${{ steps.rel.outputs.ytdlp }}"
+          EJS=$(python -c "import json; print(json.load(open('pack/youtube-pack.json'))['ejs'])")
+          NOTES="YouTube support for NiSH Player 2.0 and later: yt-dlp $YTV (yt-dlp-ejs $EJS). The app installs it from the cogwheel menu; you don't need to download anything here."
+          if ! gh release view $R --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # a pre-release, so the app's "latest release" check never sees it
+            gh release create $R --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "YouTube pack" --notes "$NOTES"
+          fi
+          gh release upload $R pack/youtube-pack-*.zip --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload $R pack/youtube-pack.json --repo "$GITHUB_REPOSITORY" --clobber   # last: it points to the zip
+          gh release edit $R --repo "$GITHUB_REPOSITORY" --notes "$NOTES"
+          # keep the four newest packs
+          gh release view $R --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -E '^youtube-pack-.*\.zip$' \
+            | sort -r | tail -n +5 | while read -r a; do gh release delete-asset $R "$a" --repo "$GITHUB_REPOSITORY" -y; done

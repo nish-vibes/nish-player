@@ -22,6 +22,7 @@ import numpy as np
 
 import engine
 import tuning
+import ytpack
 
 SETTINGS_FILE = engine.DATA_DIR / "split.json"
 SIX = ["vocals", "drums", "bass", "guitar", "piano", "other"]
@@ -195,10 +196,9 @@ def is_url(s):
 
 
 def fetch_info(url):
-    import yt_dlp
     opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
             "format": "bestaudio[format_id!*=drc]/bestaudio/best"}
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    with ytpack.use() as yt_dlp, yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info.get("_type") == "playlist":
         raise RuntimeError("That's a playlist – paste a link to a single video.")
@@ -222,8 +222,6 @@ def download(url, folder, name, on_progress, check_cancel, work=None):
     YouTube's best audio is usually Opus inside a .webm container; that is copied (not re-encoded)
     into a plain .opus file so it plays everywhere and is easy to recognise. The download goes to
     a temporary folder first and is moved into the song folder when it's complete."""
-    import yt_dlp
-
     for p in folder.glob(glob_escape(name) + ".*"):
         if p.suffix.lower() in engine.AUDIO_EXTS and p.stem == name and p.stat().st_size > 0:
             on_progress(1.0)
@@ -242,7 +240,7 @@ def download(url, folder, name, on_progress, check_cancel, work=None):
             "outtmpl": str(tmpdir / "audio.%(ext)s"), "paths": {"home": str(tmpdir), "temp": str(tmpdir)},
             "noplaylist": True, "quiet": True, "no_warnings": True, "noprogress": True,
             "progress_hooks": [hook], "ffmpeg_location": str(Path(engine.ffmpeg_exe()).parent)}
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    with ytpack.use() as yt_dlp, yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         path = Path(ydl.prepare_filename(info))
     if not path.exists() or path.stat().st_size == 0:

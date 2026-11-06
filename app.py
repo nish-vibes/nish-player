@@ -262,6 +262,9 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
                 self.bring_to_front()
                 if ev[1]:
                     self.open_paths(ev[1])
+            elif kind == "yt_fix_installed":
+                settings.clear_yt_failures()
+                self._style_cog()
             elif kind == "settings_refresh":
                 if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
                     self.settings_pop.refresh()
@@ -453,6 +456,9 @@ def _quiet(fn):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--yt-pack-check":     # used when installing a YouTube fix
+        import ytpack
+        sys.exit(ytpack.check_here(sys.argv[2], sys.argv[3]))
     if len(sys.argv) >= 4 and sys.argv[1] == "--yt-selftest":
         import smoketest
         sys.exit(smoketest.yt_selftest(sys.argv[2], sys.argv[3]))

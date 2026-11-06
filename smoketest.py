@@ -639,6 +639,63 @@ def run(app, out_dir):
             yield 0.1
         yield 0.3
         assert m.state == "latest" and "latest version" in m.msg.cget("text")
+
+        section("settings cog: a YouTube fix (small pack) first, also next to an app update")
+        import ytpack
+        real_ycheck, real_yinstall = ytpack.check, ytpack.install
+        fix = {"format": 1, "version": "2099.01.01", "size": 3_100_000, "newer": True, "needs_app_update": False,
+               "asset": "youtube-pack-2099.01.01.zip", "url": "https://example.invalid/p.zip"}
+        ytpack.check = lambda: fix
+        packs_installed = []
+
+        def fake_install(info, progress=lambda f: None, cancelled=lambda: False, checking=lambda: None):
+            for k in range(5):
+                progress(k / 4)
+                time.sleep(0.08)
+            checking()
+            time.sleep(0.2)
+            packs_installed.append(info["version"])
+
+        ytpack.install = fake_install
+        m.btn.invoke()
+        for _ in range(30):
+            if m.state != "checking":
+                break
+            yield 0.1
+        yield 0.3
+        assert m.yt["state"] == "newer" and "YouTube fix is available (3" in m.yt_msg.cget("text"), \
+            m.yt_msg.cget("text")
+        assert m.yt_btn.winfo_ismapped() and m.yt_btn.cget("text") == "Install YouTube fix"
+        assert not m.btn.winfo_ismapped() and not m.msg.winfo_ismapped()     # the app is up to date: no clutter
+        shot("6b-youtube-fix")
+        m.yt_btn.invoke()
+        saw_checking = False
+        for _ in range(60):
+            saw_checking = saw_checking or "Checking the YouTube fix" in m.yt_msg.cget("text")
+            if m.yt["state"] != "installing":
+                break
+            yield 0.05
+        yield 0.3
+        assert packs_installed == ["2099.01.01"] and m.yt["state"] == "installed" and saw_checking
+        assert "YouTube fix installed" in m.yt_msg.cget("text") and m.btn.cget("text") == "Check again"
+        shot("6c-youtube-fix-installed")
+        updater.check = lambda: {"tag": "v9.9.9", "newer": True, "url": "https://example.invalid/x.zip",
+                                 "size": 600_000_000, "notes": ""}
+        m.btn.invoke()
+        for _ in range(30):
+            if m.state != "checking":
+                break
+            yield 0.1
+        yield 0.3
+        assert m.yt["state"] == "newer" and m.state == "newer"
+        assert "9.9.9 is also available (600 MB)" in m.msg.cget("text"), m.msg.cget("text")
+        assert m.yt_btn.cget("fg_color") == _th.ACCENT and m.btn.cget("fg_color") != _th.ACCENT   # quick fix first
+        shot("6d-youtube-fix-and-new-version")
+        ytpack.check, ytpack.install = real_ycheck, real_yinstall
+        m.yt["state"], m.state = None, "idle"
+        m.refresh()
+        log("ok: YouTube fix: offered alone (no app clutter), installed with progress and a check step, "
+            "offered first next to a new app version")
         updater.check = real_check
         for _ in range(5):
             app.note_yt_failure()
