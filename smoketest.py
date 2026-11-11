@@ -915,24 +915,32 @@ def run(app, out_dir):
         log("ok: Split popover: YouTube link or a file (Browse or drop), name, karaoke + stems, Auto 440 + "
             "tuned copy, suffixes, folder preview")
         shot("3-youtube")
-        section("the song folder exists already: ask (continue as '(2)' or cancel), never write into it")
+        section("the song folder exists already: a notice under Song while typing, saved as '(2)'")
         there = out / "yt" / "Smoke Band" / "Smoke Song"
         there.mkdir(parents=True)
-        pop.go.invoke()
+        assert not pop.exists_box.winfo_ismapped()
+        pop.name_var.set("Smoke Song ")              # typing: checked on every change
+        pop.name_var.set("Smoke Song")
         yield 0.3
-        assert app.split_job is None and pop.exists.winfo_ismapped() and not pop.setup.winfo_ismapped()
-        assert pop.title.cget("text") == "This song is already in your library"
-        assert pop.exists_go.cget("text") == "Continue as \u201cSmoke Song (2)\u201d", pop.exists_go.cget("text")
-        assert pop.exists_lbl.cget("text").strip() == "Smoke Band\\Smoke Song\\", pop.exists_lbl.cget("text")
-        assert pop.pending[3] == there
-        shot("3c-split-exists")
-        assert pop.exists_cancel.cget("text") == "Cancel import"
-        pop.exists_cancel.invoke()
+        assert pop.exists_box.winfo_ismapped() and pop.existing == there
+        assert "\u201cSmoke Song (2)\u201d" in pop.exists_lbl.cget("text"), pop.exists_lbl.cget("text")
+        assert pop.exists_open.cget("text") == "Open location"
+        assert pop.preview.cget("text").splitlines()[1].strip() == "Smoke Song (2)\\", pop.preview.cget("text")
+        pop.body._parent_canvas.yview_moveto(0.25)
         yield 0.2
-        assert pop.setup.winfo_ismapped() and app.split_job is None and pop.name_var.get() == "Smoke Song"
-        log("ok: an existing song folder is asked about (Continue as 'Smoke Song (2)', Cancel import, "
-            "Open location); the artist folder is reused")
+        shot("3c-split-exists")
+        pop.artist_var.set("Other Band")             # another artist: no clash
+        yield 0.2
+        assert not pop.exists_box.winfo_ismapped() and pop.existing is None
+        pop.artist_var.set("Smoke Band")
+        yield 0.2
+        assert pop.exists_box.winfo_ismapped()
+        log("ok: an existing song folder shows a notice under Song (saved as 'Smoke Song (2)', Open location); "
+            "the artist folder is reused")
         there.rmdir()
+        pop.refresh_preview()
+        yield 0.2
+        assert not pop.exists_box.winfo_ismapped()
         pop.body._parent_canvas.yview_moveto(1.0)   # scrolled down to reach the Download button
         yield 0.2
         pop.go.invoke()

@@ -59,9 +59,9 @@ click **More info → Run anyway**.
         My Song VOX Auto440.flac   (DRM, BASS, GTR, KEYS, MISC)
   ```
 
-  An artist's songs share one artist folder. If the song folder exists already, the app asks
-  first: continue as **My Song (2)**, cancel the import, or open the folder to look. Nothing is
-  ever written into an existing song folder.
+  An artist's songs share one artist folder. If the song folder exists already, a notice under
+  the song name says so while you type (with **Open location** to look); the import is then saved
+  as **My Song (2)**. Nothing is ever written into an existing song folder.
 
   Name the artist and song yourself, or leave them blank: the artist then comes from YouTube (the
   artist, else the channel) or the file's tags, else **Unknown Artist**; the song from the video
