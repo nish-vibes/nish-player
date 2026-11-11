@@ -45,6 +45,7 @@ class LayoutMixin:
         status = self.status.cget("text")
         fader_pos = self.fader.pos
         theme.set_mode(mode)
+        self._shown_playing = None                 # the rebuilt Play button gets its playing look again
         self.vol_pop = self.auto_tip = self._resize_hint = None
         for w in list(self.root.winfo_children()):
             try:
@@ -181,6 +182,7 @@ class LayoutMixin:
         self.ruler.bind("<Button-1>", self._ruler_press)
         self.ruler.bind("<B1-Motion>", self._ruler_drag)
         self.ruler.bind("<ButtonRelease-1>", self._ruler_release)
+        self.ruler.bind("<Double-Button-1>", self._ruler_double)      # double-click the area: remove it
         self.ruler.bind("<Motion>", self._ruler_hover)
         self._rdrag = None
         ctk.CTkFrame(box, fg_color=BORDER, height=1, corner_radius=0).grid(row=0, column=0, sticky="sew")
@@ -213,13 +215,18 @@ class LayoutMixin:
         ctk.CTkButton(tr, text="", image=icon("back", TEXT2, 16), width=44, height=44, corner_radius=22,
                       fg_color=BTN, hover_color=BTN_HOVER, border_color=BORDER2, border_width=1,
                       text_color=TEXT2, command=lambda: self.seek(0)).grid(row=0, column=1, padx=9)
-        self.play_btn = ctk.CTkButton(tr, text="", image=icon("play", ACCENT_TXT, 28), width=72, height=72,
-                                      corner_radius=36, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+        # Play and Loop sit in a ring that lights up (accent) while they are active
+        self.play_ring = self._ring(tr, 72)
+        self.play_ring.grid(row=0, column=2, padx=4)
+        self.play_btn = ctk.CTkButton(self.play_ring, text="", image=icon("play", ACCENT_TXT, 28), width=72,
+                                      height=72, corner_radius=36, fg_color=ACCENT, hover_color=ACCENT_HOVER,
                                       text_color=ACCENT_TXT, command=self.toggle_play)
-        self.play_btn.grid(row=0, column=2, padx=9)
-        self.loop_btn = ctk.CTkButton(tr, text="", width=44, height=44, corner_radius=22,
+        self.play_btn.place(relx=0.5, rely=0.5, anchor="center")
+        self.loop_ring = self._ring(tr, 44)
+        self.loop_ring.grid(row=0, column=3, padx=4)
+        self.loop_btn = ctk.CTkButton(self.loop_ring, text="", width=44, height=44, corner_radius=22,
                                       border_width=1, command=self.toggle_loop)
-        self.loop_btn.grid(row=0, column=3, padx=9)
+        self.loop_btn.place(relx=0.5, rely=0.5, anchor="center")
         fade = self.fade_box = ctk.CTkFrame(tr, fg_color="transparent", width=170, height=44)
         fade.grid(row=0, column=4, padx=(18, 0))
         fade.grid_propagate(False)
@@ -320,15 +327,33 @@ class LayoutMixin:
 
 
     # ----- styling helpers -----
+    @staticmethod
+    def _ring(parent, size):
+        """A round frame 5 px bigger all round than a button of `size`: a 3 px gap, then a 2 px ring."""
+        ring = ctk.CTkFrame(parent, width=size + 10, height=size + 10, corner_radius=(size + 10) // 2,
+                            fg_color="transparent", border_width=2, border_color=DECK)
+        ring.grid_propagate(False)
+        ring.pack_propagate(False)
+        return ring
+
+    def _style_play(self, playing):
+        """Playing: the pause icon, the stronger accent and a lit ring."""
+        self.play_btn.configure(image=icon("pause" if playing else "play", ACCENT_TXT, 28),
+                                fg_color=ACCENT_STRONG if playing else ACCENT,
+                                hover_color=ACCENT_STRONG if playing else ACCENT_HOVER)
+        self.play_ring.configure(border_color=ACCENT if playing else DECK)
+
     def _style_loop(self):
         on = self.player.loop
         if on:
             self.fade_inner.place(relx=0, rely=0.5, anchor="w")
         else:
             self.fade_inner.place_forget()
-        self.loop_btn.configure(fg_color=ACCENT_TINT if on else BTN, border_color=ACCENT if on else BORDER2,
-                                image=icon("loop", ACCENT_SOFT if on else TEXT2, 18),
-                                hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER)
+        # on: filled accent with a lit ring, so it reads at a glance; off: an outlined button
+        self.loop_btn.configure(fg_color=ACCENT if on else BTN, border_color=ACCENT if on else BORDER2,
+                                image=icon("loop", ACCENT_TXT if on else MUTED, 18),
+                                hover_color=ACCENT_HOVER if on else BTN_HOVER)
+        self.loop_ring.configure(border_color=ACCENT if on else DECK)
 
     def _style_fine(self):
         auto = self.auto

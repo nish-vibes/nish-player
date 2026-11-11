@@ -39,6 +39,7 @@ CANVAS_COLORS = {
     "ACCENT_TINT": ("#1d2333", "#eaeeff"),   # --accent-tint
     "ACCENT_BAND": ("#26365a", "#d7e0ff"),   # --accent-band
     "ACCENT_TRACK": ("#2c3550", "#d6defa"),  # --accent-track
+    "ACCENT_STRONG": ("#c8d4ff", "#2741a8"), # --accent-strong
     "WARN": ("#e8c45a", "#d28208"),          # --warn
     "WARN_KNOB": ("#eef0f3", "#d28208"),     # --warn-knob
     "WARN_TRACK": ("#e8c45a", "#f3c27a"),    # --warn-track
@@ -204,8 +205,8 @@ def icon(name, color, size=16):
         d.rectangle([S * .2, S * .2, S * .2 + w, S * .8], fill=color)
         d.polygon([(S * .8, S * .2), (S * .8, S * .8), (S * .32, S * .5)], fill=color)
     elif name == "loop":
-        d.arc([S * .16, S * .2, S * .84, S * .8], 20, 320, fill=color, width=w)
-        d.polygon([(S * .6, S * .06), (S * .86, S * .27), (S * .56, S * .38)], fill=color)
+        d.arc([S * .16, S * .2, S * .84, S * .8], -140, 160, fill=color, width=w)     # arrow at the top left
+        d.polygon([(S * .4, S * .06), (S * .14, S * .27), (S * .44, S * .38)], fill=color)
     elif name == "export":
         d.line([(S * .5, S * .12), (S * .5, S * .62)], fill=color, width=w)
         d.polygon([(S * .26, S * .44), (S * .74, S * .44), (S * .5, S * .72)], fill=color)

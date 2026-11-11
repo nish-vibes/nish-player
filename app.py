@@ -183,7 +183,7 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
             playing = self.player.playing
             if playing != getattr(self, "_shown_playing", None):
                 self._shown_playing = playing
-                self.play_btn.configure(image=icon("pause" if playing else "play", ACCENT_TXT, 28))
+                self._style_play(playing)
         except Exception:
             traceback.print_exc()
         self.root.after(33, self._tick)

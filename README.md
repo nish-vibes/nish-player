@@ -82,7 +82,8 @@ click **More info → Run anyway**.
 
 - **Loop area**: drag on the time ruler above the tracks to mark an area; the loop button (next
   to play) plays it over and over, with a short **Fade** at both ends (0–2 s). A click on the
-  ruler still jumps there, and **×** clears the area. With loop on, Export writes only the area.
+  ruler still jumps there, and a double-click on the area removes it. With loop on, Export
+  writes only the area. Play and Loop light up a ring around them while they're on.
 - **Volume automation**: **A** on a track draws its volume as a line. Click to add a point, drag
   to move it, double-click to delete it. Export follows the line.
 - **Track height**: drag the bottom edge of a track to make all tracks taller or lower; the

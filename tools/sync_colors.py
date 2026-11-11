@@ -29,7 +29,7 @@ TOKENS = {
     "TEXT": "text", "TEXT2": "text-2", "SOFT": "soft", "MUTED": "muted", "DIM": "dim",
     # accent
     "ACCENT": "accent", "ACCENT_TXT": "on-accent", "ACCENT_SOFT": "accent-text", "ACCENT_TINT": "accent-tint",
-    "ACCENT_BAND": "accent-band", "ACCENT_TRACK": "accent-track",
+    "ACCENT_BAND": "accent-band", "ACCENT_TRACK": "accent-track", "ACCENT_STRONG": "accent-strong",
     # Auto 440: warning orange, the switch, the lamp
     "WARN": "warn", "WARN_KNOB": "warn-knob", "WARN_TRACK": "warn-track", "LAMP": "lamp",
     # green (done / saved)

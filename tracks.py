@@ -384,8 +384,6 @@ class TracksMixin:
             if x1 - x0 > 110:
                 c.create_text((x0 + x1) / 2, 15, text=label, fill=ACCENT_SOFT if on else MUTED,
                               font=(MONO, 9))
-            cx = x1 - 9 if x1 - x0 > 40 else x1 + 10
-            c.create_text(cx, 15, text="×", fill=TEXT2, font=(UI, 12), tags=("clear",))
         step = next((s for s in (5, 10, 15, 20, 30, 60, 120, 300) if dur / s <= 9), 600)
         t = 0
         while t <= dur:
@@ -414,9 +412,6 @@ class TracksMixin:
         if not r:
             return None
         x0, x1 = self._src_to_x(r[0]), self._src_to_x(r[1])
-        if "clear" in self.ruler.gettags(self.ruler.find_closest(x, 15)[0]) and \
-                abs(x - (x1 - 9 if x1 - x0 > 40 else x1 + 10)) < 8:
-            return "clear"
         if abs(x - x0) < 7:
             return "a"
         if abs(x - x1) < 7:
@@ -427,8 +422,8 @@ class TracksMixin:
 
     def _ruler_hover(self, e):
         hit = self._ruler_hit(e.x)
-        self.ruler.configure(cursor={"a": "sb_h_double_arrow", "b": "sb_h_double_arrow", "move": "fleur",
-                                     "clear": "hand2"}.get(hit, "xterm"))
+        self.ruler.configure(cursor={"a": "sb_h_double_arrow", "b": "sb_h_double_arrow", "move": "fleur"
+                                     }.get(hit, "xterm"))
 
     def _ruler_press(self, e):
         if not self.lanes:
@@ -461,8 +456,10 @@ class TracksMixin:
         if not d:
             return
         if not d["moved"]:
-            if d["hit"] == "clear":
-                self.player.set_region(None, None)
-                self.refresh_region()
-            else:
-                self.seek(self._x_to_src(e.x) / max(1, self.player.source_length()))
+            self.seek(self._x_to_src(e.x) / max(1, self.player.source_length()))
+
+    def _ruler_double(self, e):
+        """Double-click inside the loop area (or on its edges) removes it."""
+        if self._ruler_hit(e.x):
+            self.player.set_region(None, None)
+            self.refresh_region()

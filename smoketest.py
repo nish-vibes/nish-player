@@ -747,7 +747,7 @@ def run(app, out_dir):
         assert theme.MODE == "dark" and settings.get("theme") == "dark" and len(app.lanes) == n_lanes
         log("ok: theme switch in the cog menu: dark (default) -> light -> dark, remembered, tracks kept")
 
-        section("loop area: drag on the timeline, loop button, export only the area, clear with ×")
+        section("loop area: drag on the timeline, loop button, export only the area, double-click clears")
         rc = app.ruler
         span = app._ruler_span()
         x_a, x_b = 8 + span * 0.25, 8 + span * 0.6
@@ -764,9 +764,11 @@ def run(app, out_dir):
         yield 0.2
         assert app.player.region == r and abs(app.player.position() - 0.8) < 0.02
         assert app.player.active_region() is None
+        assert app.loop_ring.cget("border_color") == theme.DECK               # off: no lit ring
         app.loop_btn.invoke()
         yield 0.2
         assert app.player.loop and app.player.active_region() == r
+        assert app.loop_ring.cget("border_color") == theme.ACCENT and app.loop_btn.cget("fg_color") == theme.ACCENT
         assert app.fade_inner.winfo_ismapped() and app.player.loop_fade == 1.0
         app.fade_slider.set(0.5)
         app.on_fade(0.5)
@@ -797,16 +799,27 @@ def run(app, out_dir):
         log(f"ok: export with loop on writes only the area: {Path(d.written[0]).name} ({secs:.2f} s)")
         d.close()
         yield 0.2
-        x1 = app._src_to_x(r[1])
-        cx = x1 - 9 if x1 - app._src_to_x(r[0]) > 40 else x1 + 10
-        rc.event_generate("<Button-1>", x=int(cx), y=15)
-        rc.event_generate("<ButtonRelease-1>", x=int(cx), y=15)
+        assert not rc.find_withtag("clear")                                    # no × on the timeline
+        from types import SimpleNamespace as Ev                               # Tk can't fake a double-click
+        assert "_ruler_double" in rc.bind("<Double-Button-1>")
+        app._ruler_double(Ev(x=int(8 + span * 0.8)))                          # outside the area: kept
+        yield 0.1
+        assert app.player.region == r
+        cx = int((app._src_to_x(r[0]) + app._src_to_x(r[1])) / 2)
+        app._ruler_double(Ev(x=cx))
         yield 0.2
         assert app.player.region is None
         app.loop_btn.invoke()
         yield 0.2
-        assert not app.fade_inner.winfo_ismapped()
-        log("ok: × clears the loop area; Fade slider hides when loop is off")
+        assert not app.fade_inner.winfo_ismapped() and app.loop_ring.cget("border_color") == theme.DECK
+        app._style_play(True)                                                  # playing: pause, strong accent, lit ring
+        assert app.play_btn.cget("fg_color") == theme.ACCENT_STRONG
+        assert app.play_ring.cget("border_color") == theme.ACCENT
+        shot("5b-playing")
+        app._shown_playing = None
+        yield 0.1
+        assert app.play_btn.cget("fg_color") == theme.ACCENT and app.play_ring.cget("border_color") == theme.DECK
+        log("ok: double-click on the loop area clears it; loop and play light their ring while active")
 
         section("remove and clear")
         drums = next(l for l in app.lanes if l.track.label == "Drums")   # lanes were rebuilt by the project reopen
