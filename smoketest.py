@@ -606,6 +606,9 @@ def run(app, out_dir):
         yield 0.4
         m = app.settings_pop
         assert m.is_open() and m.btn.cget("text") == "Check for updates" and not m.notice.winfo_ismapped()
+        import splitter
+        lib = str(splitter.location(splitter.load_settings()))           # the library row: the Desktop at first
+        assert m.lib_lbl.cget("text").strip() == lib, (m.lib_lbl.cget("text"), lib)
         m.btn.invoke()
         for _ in range(30):
             if m.state != "checking":
@@ -867,7 +870,11 @@ def run(app, out_dir):
         assert pop.file_var.get() == str(song) and pop.s["source"] == "file"
         assert pop.info and pop.info.get("title") == "Smoke Song source", pop.info
         assert pop.info.get("duration", 0) > 1 and "from this computer" in pop.info_sub.cget("text"), pop.info
+        hint = pop.artist_hint.lbl.cget("text")
+        assert hint.endswith("Unknown Artist"), hint                    # the file has no artist tag
+        pop.artist_var.set("Smoke Band")
         pop.name_var.set("Smoke Song")
+        splitter.set_location(str(out / "yt"))       # the library (shared with the cogwheel menu)
         pop.s.update(out_root=str(out / "yt"))
         pop.s["out"] = {"original": True, "karaoke": True, "stems": True, "stems6": False}
         pop.s["tune"] = {"original": True, "karaoke": True, "stems": True}
@@ -900,13 +907,32 @@ def run(app, out_dir):
         pop.suffixes_done()
         yield 0.3
         txt = pop.preview.cget("text")
-        assert txt.splitlines()[1].strip().startswith("~Smoke Song.nish"), txt     # project at the top
+        assert txt.splitlines()[0] == "Smoke Band\\" and txt.splitlines()[1].strip() == "Smoke Song\\", txt
+        assert txt.splitlines()[2].strip().startswith("~Smoke Song.nish"), txt     # project at the top
         for want in ("Smoke Song Original.wav", "Smoke Song Auto440.flac", "Smoke Song KARAOKE Auto440.mp3",
                      "Separated Stems - Smoke Song", "Smoke Song VOX Auto440.flac", "Smoke Song KEYS Auto440.flac"):
             assert want in txt, (want, txt)
         log("ok: Split popover: YouTube link or a file (Browse or drop), name, karaoke + stems, Auto 440 + "
             "tuned copy, suffixes, folder preview")
         shot("3-youtube")
+        section("the song folder exists already: ask (continue as '(2)' or cancel), never write into it")
+        there = out / "yt" / "Smoke Band" / "Smoke Song"
+        there.mkdir(parents=True)
+        pop.go.invoke()
+        yield 0.3
+        assert app.split_job is None and pop.exists.winfo_ismapped() and not pop.setup.winfo_ismapped()
+        assert pop.title.cget("text") == "This song is already in your library"
+        assert pop.exists_go.cget("text") == "Continue as \u201cSmoke Song (2)\u201d", pop.exists_go.cget("text")
+        assert pop.exists_lbl.cget("text").strip() == "Smoke Band\\Smoke Song\\", pop.exists_lbl.cget("text")
+        assert pop.pending[3] == there
+        shot("3c-split-exists")
+        assert pop.exists_cancel.cget("text") == "Cancel import"
+        pop.exists_cancel.invoke()
+        yield 0.2
+        assert pop.setup.winfo_ismapped() and app.split_job is None and pop.name_var.get() == "Smoke Song"
+        log("ok: an existing song folder is asked about (Continue as 'Smoke Song (2)', Cancel import, "
+            "Open location); the artist folder is reused")
+        there.rmdir()
         pop.body._parent_canvas.yview_moveto(1.0)   # scrolled down to reach the Download button
         yield 0.2
         pop.go.invoke()
@@ -937,7 +963,7 @@ def run(app, out_dir):
             assert time.time() - t0 < 1200, "YouTube job timed out"
             yield 0.5
         assert not job.error, job.error
-        folder = out / "yt" / "Smoke Song"
+        folder = out / "yt" / "Smoke Band" / "Smoke Song"
         made = sorted(str(p.relative_to(folder)).replace("\\", "/") for p in folder.rglob("*.*"))
         log(f"ok: split took {time.time() - t0:.0f}s, wrote {made}; {job.result['tuning']}")
         if getattr(sys, "frozen", False):   # the built app: the AI models ship with it, nothing downloaded

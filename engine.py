@@ -817,6 +817,25 @@ def export(tracks, gains, master, speed, semitones, mode, fmt, dest, progress=la
     return written
 
 
+def probe_tags(path):
+    """A file's own tags, lower-case keys: {'artist': ..., 'title': ...} (album artist as the fallback
+    artist). {} when there are none or ffmpeg can't read the file."""
+    try:
+        out = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True,
+                             text=True, encoding="utf-8", errors="replace", creationflags=_NO_WINDOW,
+                             timeout=20).stderr
+    except Exception:
+        return {}
+    tags = {}
+    for m in re.finditer(r"^\s{4,}(\w+)\s*:\s?(.*)$", out, re.M):
+        k = m[1].lower()
+        if k in ("artist", "album_artist", "title") and m[2].strip() and k not in tags:
+            tags[k] = m[2].strip()
+    if not tags.get("artist") and tags.get("album_artist"):
+        tags["artist"] = tags["album_artist"]
+    return tags
+
+
 def probe_seconds(path):
     """Duration of a written file (used by the self-tests)."""
     out = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True,

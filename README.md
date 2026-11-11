@@ -44,20 +44,28 @@ click **More info → Run anyway**.
   - **Auto 440** under each choice tunes those files to A = 440 Hz (varispeed). Under Original it
     adds a tuned copy next to the original.
 
-  Everything goes into one song folder (on the Desktop unless you pick another place with
-  **Change project location…**):
+  Everything goes into your **library** (the Desktop unless you pick another folder with
+  **Change…**, in the Split dialog or the cogwheel menu), one folder per artist with a folder per
+  song inside it:
 
   ```
-  My Song\
-    ~My Song.nish                      the project (sorts to the top)
-    My Song Original.opus
-    My Song Auto440.flac
-    My Song KARAOKE Auto440.mp3
-    Separated Stems - My Song\
-      My Song VOX Auto440.flac   (DRM, BASS, GTR, KEYS, MISC)
+  Artist\
+    My Song\
+      ~My Song.nish                      the project (sorts to the top)
+      My Song Original.opus
+      My Song Auto440.flac
+      My Song KARAOKE Auto440.mp3
+      Separated Stems - My Song\
+        My Song VOX Auto440.flac   (DRM, BASS, GTR, KEYS, MISC)
   ```
 
-  Name the song yourself or leave the name blank to use the video title or file name. The
+  An artist's songs share one artist folder. If the song folder exists already, the app asks
+  first: continue as **My Song (2)**, cancel the import, or open the folder to look. Nothing is
+  ever written into an existing song folder.
+
+  Name the artist and song yourself, or leave them blank: the artist then comes from YouTube (the
+  artist, else the channel) or the file's tags, else **Unknown Artist**; the song from the video
+  title or file name. The
   cogwheel sets the file format (FLAC by default; WAV, MP3 320 or Opus), the name tags and the
   stems folder name. **Add to workspace** loads the result straight into the player: the stems
   if you made stems, otherwise the karaoke file, otherwise the (tuned) original. The AI models

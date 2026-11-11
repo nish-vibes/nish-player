@@ -1,12 +1,14 @@
 """Split song: a YouTube link or a file on this computer -> a song folder with the original,
 an Auto440 copy, a karaoke MP3 and/or stems (AI separation with Demucs), plus a project file.
 
-Folder layout (suffixes are configurable, added after the name with a space):
-    <location>/<Name>/~<Name>.nish                          project (sorts to the top)
-    <location>/<Name>/<Name> Original.<ext>                  original, not re-encoded (Opus saved as .opus)
-    <location>/<Name>/<Name> Auto440.flac                    the original tuned to A = 440 Hz
-    <location>/<Name>/<Name> KARAOKE[ Auto440].mp3           karaoke, always MP3 320
-    <location>/<Name>/Separated Stems - <Name>/<Name> VOX[ Auto440].flac ...   4 or 6 stems
+Folder layout in the library (suffixes are configurable, added after the name with a space):
+    <library>/<Artist>/<Name>/~<Name>.nish                   project (sorts to the top)
+    <library>/<Artist>/<Name>/<Name> Original.<ext>           original, not re-encoded (Opus saved as .opus)
+    <library>/<Artist>/<Name>/<Name> Auto440.flac             the original tuned to A = 440 Hz
+    <library>/<Artist>/<Name>/<Name> KARAOKE[ Auto440].mp3    karaoke, always MP3 320
+    <library>/<Artist>/<Name>/Separated Stems - <Name>/<Name> VOX[ Auto440].flac ...   4 or 6 stems
+An artist folder that exists is shared by all that artist's songs; a song folder that exists is never
+written into: the Split dialog asks first and uses '<Name> (2)' (see free_name).
 YouTube imports always keep the original (and its Auto440 copy when that switch is on).
 """
 import copy
@@ -31,6 +33,7 @@ LABELS = {"vocals": "Vocals", "drums": "Drums", "bass": "Bass", "guitar": "Guita
           "other": "Other", "karaoke": "Karaoke", "original": "Original", "tuned": "Original 440 Hz"}
 MODEL_BEST = "htdemucs_ft"     # fine-tuned: the best Demucs model for vocals/drums/bass/other
 MODEL_SIX = "htdemucs_6s"      # the only Demucs model with guitar and piano
+UNKNOWN_ARTIST = "Unknown Artist"
 
 
 def _desktop():
@@ -87,8 +90,16 @@ def load_settings():
 
 
 def location(opts):
-    """Where song folders are created (the Desktop unless the user picked another place)."""
+    """The library: where artist folders are created (the Desktop unless the user picked another place)."""
     return opts.get("out_root") or _desktop()
+
+
+def set_location(folder):
+    """Change the library (the cogwheel menu and the Split dialog share this setting)."""
+    s = load_settings()
+    s["out_root"] = str(folder or "")
+    save_settings(s)
+    return s
 
 
 def effective(opts, local):
@@ -116,10 +127,10 @@ def save_settings(s):
 _BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
-def sanitize(name, limit=80):
+def sanitize(name, limit=80, empty="track"):
     s = _BAD.sub("", name or "").strip().rstrip(". ")
     s = re.sub(r"\s+", " ", s)
-    return s[:limit].rstrip(". ") or "track"
+    return s[:limit].rstrip(". ") or empty
 
 
 def _n(name, *parts):
@@ -147,6 +158,38 @@ def plan(name, opts, orig_ext=".opus", local=False, tuned=True):
         for k in keys:
             items.append((k, f"{folder}/" + _n(name, sfx[k], T("stems")) + ext, LABELS[k]))
     return items
+
+
+def artist_name(artist):
+    """The artist folder's name ('' = Unknown Artist)."""
+    return sanitize(artist, empty=UNKNOWN_ARTIST)
+
+
+def song_dir(opts, artist, name):
+    """<library>/<Artist>/<Name>"""
+    return Path(location(opts)) / artist_name(artist) / sanitize(name)
+
+
+def free_name(opts, artist, name):
+    """The song name to use so no existing song folder is written into: 'My Song', else 'My Song (2)', ..."""
+    name = sanitize(name)
+    n, cand = 1, name
+    while song_dir(opts, artist, cand).exists():
+        n += 1
+        cand = sanitize(f"{name[:72]} ({n})")
+    return cand
+
+
+def clean_artist(info):
+    """The artist yt-dlp found: the music metadata, else the channel ('Artist - Topic' -> 'Artist')."""
+    artists = info.get("artists")
+    if isinstance(artists, list) and artists:
+        a = artists[0]
+    elif info.get("artist"):
+        a = str(info["artist"]).split(",")[0]          # older yt-dlp: "Artist 1, Artist 2"
+    else:
+        a = info.get("creator") or info.get("channel") or info.get("uploader") or ""
+    return re.sub(r"\s+-\s+Topic$", "", str(a).strip(), flags=re.I)
 
 
 def project_rel(name, opts=None):
@@ -206,7 +249,7 @@ def fetch_info(url):
     abr = info.get("abr")
     q = " ".join(x for x in [{"opus": "Opus", "mp4a": "AAC"}.get(codec, codec.upper()),
                              f"{abr:.0f} kbps" if abr else ""] if x)
-    return {"title": info.get("title") or "track", "duration": info.get("duration"),
+    return {"title": info.get("title") or "track", "artist": clean_artist(info), "duration": info.get("duration"),
             "id": info.get("id"), "ext": saved_ext(info.get("ext"), codec), "quality": q}
 
 
@@ -370,8 +413,9 @@ def demucs_separate(audio, model_name, on_progress, check_cancel):
 SEPARATOR = None  # tests can swap in a stand-in for the AI
 
 
-def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: None, separator=None):
+def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: None, separator=None, artist=""):
     """source: YouTube link or a local file. name: '' = use the video title / file name.
+    artist: '' = the artist YouTube or the file's tags give, else Unknown Artist.
 
     stage(key, frac) reports progress for 'download', 'split', 'tune', 'save'.
     Returns {"folder", "files": {key: path}, "load": [(path, label)], "tuning": text, "name", "project"}."""
@@ -389,7 +433,10 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
         stage("download", 0.0)
         if local:
             name = sanitize(name or Path(source).stem)
-            folder = root / name
+            if not (artist or "").strip():
+                artist = engine.probe_tags(source).get("artist", "")
+            name = free_name(opts, artist, name)    # never into an existing song folder (the dialog asks first)
+            folder = root / artist_name(artist) / name
             folder.mkdir(parents=True, exist_ok=True)
             src = Path(source)
             if out["original"]:
@@ -400,10 +447,13 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
             else:
                 orig = src                                   # used for the split, not copied
         else:
-            if not name:
-                name = fetch_info(source)["title"]
+            if not name or not (artist or "").strip():
+                info = fetch_info(source)
+                name = name or info["title"]
+                artist = artist if (artist or "").strip() else info.get("artist", "")
             name = sanitize(name)
-            folder = root / name
+            name = free_name(opts, artist, name)    # never into an existing song folder (the dialog asks first)
+            folder = root / artist_name(artist) / name
             folder.mkdir(parents=True, exist_ok=True)
             orig = download(source, folder, _n(name, sfx["original"]), lambda p: stage("download", p),
                             check_cancel, work=work)
@@ -493,6 +543,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
                 traceback.print_exc()
                 proj = None
         return {"folder": folder, "files": files, "load": load, "tuning": tuning_text, "name": name,
+                "artist": artist_name(artist),
                 "project": proj}
     finally:
         shutil.rmtree(work, ignore_errors=True)

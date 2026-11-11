@@ -27,11 +27,16 @@ def fmt_dur(sec):
     return f"{sec // 60}:{sec % 60:02d}"
 
 
+def local_or_known(info, source):
+    """Is the artist known before the job starts (a file, or a link that has been looked up)?"""
+    return source == "file" or bool(info and not info.get("error") and not info.get("loading"))
+
+
 class SplitJob:
     """Runs one download/split in the background; reports through the app's event queue."""
 
-    def __init__(self, app, source, name, opts):
-        self.app, self.source, self.name, self.opts = app, source, name, opts
+    def __init__(self, app, source, name, opts, artist=""):
+        self.app, self.source, self.name, self.opts, self.artist = app, source, name, opts, artist
         self.cancelled = False
         self.running = True
         self.result = self.error = None
@@ -57,7 +62,7 @@ class SplitJob:
         try:
             res = splitter.run(self.source, self.name, self.opts,
                                stage=lambda k, f: self.app.events.put(("split_stage", self, k, f)),
-                               check_cancel=self.check_cancel)
+                               check_cancel=self.check_cancel, artist=self.artist)
             self.app.events.put(("split_done", self, res, None))
         except splitter.Cancelled:
             self.app.events.put(("split_done", self, None, "Cancelled."))
@@ -108,6 +113,7 @@ class SplitPopover:
         self.body.pack(fill="both", expand=True, padx=(8, 4), pady=(0, 14))
         self._build_setup()
         self._build_suffixes()
+        self._build_exists()
         self._build_work()
         self.show_info()        # the card's hint and the name field's placeholder, before anything is typed
         self.frame.bind("<Escape>", lambda e: self.close())
@@ -137,7 +143,9 @@ class SplitPopover:
         self.frame.place_forget()
 
     def show(self, which):
-        for name, f in (("setup", self.setup), ("suffixes", self.suf), ("work", self.work)):
+        if which == "setup":   # the library may have been changed in the cogwheel menu meanwhile
+            self.s["out_root"] = splitter.load_settings()["out_root"]
+        for name, f in (("setup", self.setup), ("suffixes", self.suf), ("exists", self.exists), ("work", self.work)):
             if name == which:
                 f.pack(fill="x", padx=12)
             else:
@@ -146,7 +154,7 @@ class SplitPopover:
         working = ("Splitting…" if job and os.path.isfile(job.source) else "Downloading…") if job and job.running \
             else "Split song"
         self.title.configure(text={"setup": "Split song", "suffixes": "Format and file names",
-                                   "work": working}[which])
+                                   "exists": "This song is already in your library", "work": working}[which])
         if which == "work":
             self.refresh_work()
         elif which == "setup":
@@ -214,7 +222,17 @@ class SplitPopover:
         self.drop_tip = ctk.CTkLabel(p, text="Tip: you can also drop an audio file onto this window.", font=font(12),
                                      text_color=DIM, anchor="w", height=18)
 
-        self.section(p, "FILE NAME")
+        # artist (the main folder in the library) and song (its subfolder, and the file names)
+        self.section(p, "ARTIST")
+        self.artist_var = tk.StringVar()
+        self.artist_entry = ctk.CTkEntry(p, textvariable=self.artist_var,
+                                         height=40, font=font(13), fg_color=FIELD, border_color=BORDER2,
+                                         text_color=TEXT)
+        self.artist_entry.pack(fill="x")
+        self.artist_hint = EntryHint(self.artist_entry, self.artist_var, "Blank = artist or channel name")
+        self.artist_var.trace_add("write", lambda *a: self.refresh_preview())
+
+        self.section(p, "SONG")
         self.name_var = tk.StringVar()
         self.name_entry = ctk.CTkEntry(p, textvariable=self.name_var,
                                        height=40, font=font(13), fg_color=FIELD, border_color=BORDER2,
@@ -223,8 +241,8 @@ class SplitPopover:
         self.name_hint = EntryHint(self.name_entry, self.name_var, "Blank = video title")
         self.name_var.trace_add("write", lambda *a: self.refresh_preview())
 
-        # location: the song folder (with its project file) is created here
-        self.section(p, "LOCATION")
+        # the library: artist folders are created here (the same setting as Library in the cogwheel menu)
+        self.section(p, "LIBRARY")
         loc = ctk.CTkFrame(p, fg_color="transparent")
         loc.pack(fill="x")
         box = ctk.CTkFrame(loc, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=8, height=36)
@@ -233,9 +251,9 @@ class SplitPopover:
         self.loc_lbl = ctk.CTkLabel(box, text="", image=icon("folder", MUTED, 14), compound="left",
                                     font=font(12, mono=True), text_color=SOFT, anchor="w")
         self.loc_lbl.pack(fill="both", expand=True, padx=10)
-        ToolButton(loc, "Change project location…", self.change_folder, height=36, width=190,
+        ToolButton(loc, "Change…", self.change_folder, height=36, width=96,
                    font=font(13)).pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(p, text="The song folder, with its project file, is created here.", font=font(12),
+        ctk.CTkLabel(p, text="Songs are saved here, each in its artist's folder.", font=font(12),
                      text_color=DIM, anchor="w", height=18).pack(fill="x", pady=(4, 0))
 
         # what to make: Original, Karaoke, 4 or 6 stems; each with its own Auto 440 (see split_choices)
@@ -343,6 +361,13 @@ class SplitPopover:
             return splitter.sanitize(self.info["title"])
         return "[File name]" if self.source() == "file" else "[Video title]"
 
+    def current_artist(self):
+        """The artist folder's name, as it will be used."""
+        a = self.artist_var.get().strip()
+        if not a and self.info and not self.info.get("error") and not self.info.get("loading"):
+            a = self.info.get("artist") or ""
+        return splitter.artist_name(a)
+
     def refresh_preview(self):
         name = self.current_name()
         is_file = self.source() == "file"
@@ -352,18 +377,18 @@ class SplitPopover:
         if len(items) == 1:
             self.preview.configure(text="Choose what to make.")
             return
-        lines = [f"{name}\\"]
+        lines = [f"{self.current_artist()}\\", f"   {name}\\"]
         width = max((len(r) for _, r, _ in items if "/" not in r), default=0) + 3
         folder_shown = False
         for key, rel, _ in items:
             if "/" in rel:
                 sub, fn = rel.split("/", 1)
                 if not folder_shown:
-                    lines.append(f"   {sub}\\")
+                    lines.append(f"      {sub}\\")
                     folder_shown = True
-                lines.append(f"      {fn}")
+                lines.append(f"         {fn}")
             else:
-                lines.append(f"   {rel.ljust(width)}{notes.get(key, '')}".rstrip())
+                lines.append(f"      {rel.ljust(width)}{notes.get(key, '')}".rstrip())
         self.preview.configure(text="\n".join(lines))
 
     @staticmethod
@@ -391,9 +416,10 @@ class SplitPopover:
 
     def change_folder(self):
         d = filedialog.askdirectory(parent=self.root, initialdir=splitter.location(self.s),
-                                    title="Where should the song folder be created?")
+                                    title="Choose the NiSH Player library folder")
         if d:
-            self.s["out_root"] = d                  # remembered as the new default location
+            splitter.set_location(d)                # the library, also shown in the cogwheel menu
+            self.s["out_root"] = d
             self.save()
             self.refresh_setup()
 
@@ -405,6 +431,7 @@ class SplitPopover:
 
     def save(self):
         self.s.update(self.opts())
+        self.s["out_root"] = splitter.load_settings()["out_root"]   # the cogwheel menu may have changed it
         splitter.save_settings(self.s)
 
     # ----- video info -----
@@ -433,6 +460,7 @@ class SplitPopover:
                 except Exception:
                     dur = None
                 self.info = {"title": Path(src).stem, "duration": dur, "ext": Path(src).suffix.lower(),
+                             "artist": engine.probe_tags(src).get("artist", ""),
                              "quality": Path(src).suffix.lstrip(".").upper() + " · from this computer"}
             self.show_info()
             return
@@ -472,6 +500,8 @@ class SplitPopover:
                                     if is_file else "The best audio is saved as-is; karaoke and stems are optional.",
                                     text_color=MUTED)
             self.name_hint.set("Blank = file name" if is_file else "Blank = video title")
+            self.artist_hint.set("Blank = artist in the file, else Unknown Artist" if is_file
+                                 else "Blank = artist or channel name")
         elif i.get("loading"):
             self.info_title.configure(text="Looking up the video…")
             self.info_sub.configure(text="", text_color=MUTED)
@@ -485,6 +515,8 @@ class SplitPopover:
             bits = [fmt_dur(i.get("duration")), q if local else ("best quality: " + q if q else "")]
             self.info_sub.configure(text=" · ".join(b for b in bits if b), text_color=MUTED)
             self.name_hint.set(f"Blank = {i['title'][:40]}")
+            self.artist_hint.set(f"Blank = {i['artist'][:40]}" if i.get("artist")
+                                 else f"Blank = {splitter.UNKNOWN_ARTIST}")
         self.refresh_preview()
 
     # ----- suffix settings (cogwheel) -----
@@ -650,6 +682,7 @@ class SplitPopover:
         self.app.split_job = None
         self.url_var.set("")
         self.file_var.set("")
+        self.artist_var.set("")
         self.name_var.set("")
         self.show("setup")
 
@@ -682,5 +715,68 @@ class SplitPopover:
         name = self.name_var.get().strip()
         if not name and self.info and self.info.get("title"):
             name = self.info["title"]
-        self.app.split_job = SplitJob(self.app, src, name, self.opts())
+        artist = self.artist_var.get().strip()
+        if not artist and self.info and not self.info.get("error") and not self.info.get("loading"):
+            artist = self.info.get("artist") or ""
+        known = artist or local_or_known(self.info, self.source())
+        if known and name and splitter.song_dir(self.opts(), artist, name).exists():
+            self.ask_exists(src, artist, name)      # never write into a song folder that is there already
+            return
+        self.begin(src, artist, name)
+
+    def begin(self, src, artist, name):
+        self.pending = None
+        self.app.split_job = SplitJob(self.app, src, name, self.opts(), artist=artist)
         self.show("work")
+
+    # ----- the song folder already exists -----
+    def _build_exists(self):
+        p = self.exists = ctk.CTkFrame(self.body, fg_color="transparent")
+        self.pending = None
+        ctk.CTkLabel(p, text="Your library already has a folder for this song. Continue to save this import "
+                              "in a new folder next to it, or cancel.",
+                     font=font(13), text_color=SOFT, anchor="w", wraplength=440, justify="left").pack(
+            fill="x", pady=(4, 12))
+        row = ctk.CTkFrame(p, fg_color="transparent")
+        row.pack(fill="x")
+        box = ctk.CTkFrame(row, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=8, height=36)
+        box.pack(side="left", fill="x", expand=True)
+        box.pack_propagate(False)
+        self.exists_lbl = ctk.CTkLabel(box, text="", image=icon("folder", MUTED, 14), compound="left",
+                                       font=font(12, mono=True), text_color=TEXT2, anchor="w")
+        self.exists_lbl.pack(fill="both", expand=True, padx=10)
+        ToolButton(row, "Open location", self.open_existing, height=36, width=120,
+                   font=font(13)).pack(side="left", padx=(8, 0))
+        ctk.CTkFrame(p, fg_color=SEPARATOR, height=1, corner_radius=0).pack(fill="x", pady=(16, 12))
+        foot = ctk.CTkFrame(p, fg_color="transparent")
+        foot.pack(fill="x", pady=(0, 4))
+        self.exists_go = ToolButton(foot, "Continue", self.continue_new, primary=True, height=40, width=200)
+        self.exists_go.pack(side="right")
+        self.exists_cancel = ToolButton(foot, "Cancel import", lambda: self.show("setup"), height=40, width=120)
+        self.exists_cancel.pack(side="right", padx=8)
+
+    def ask_exists(self, src, artist, name):
+        new = splitter.free_name(self.opts(), artist, name)
+        self.pending = (src, artist, new, splitter.song_dir(self.opts(), artist, name))
+        where = f"{splitter.artist_name(artist)}\\{splitter.sanitize(name)}\\"
+        self.exists_lbl.configure(text="  " + self._short(where, 44))
+        label = new if len(new) <= 22 else new[:20] + "…"
+        self.exists_go.configure(text=f"Continue as \u201c{label}\u201d")
+        self.show("exists")
+
+    def continue_new(self):
+        if self.pending and not (self.app.split_job and self.app.split_job.running):
+            src, artist, new, _ = self.pending
+            self.begin(src, artist, new)
+
+    def open_existing(self):
+        if not self.pending:
+            return
+        folder = self.pending[3]
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["explorer", "/select,", str(folder)])   # its parent, with it selected
+            else:
+                subprocess.Popen(["xdg-open", str(folder.parent)])
+        except Exception:
+            traceback.print_exc()

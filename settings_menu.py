@@ -1,4 +1,4 @@
-"""The cogwheel menu in the top right: version, theme, and updates.
+"""The cogwheel menu in the top right: version, theme, the library (where Split saves songs), and updates.
 
 Two kinds of update, both manual:
 - a YouTube fix (ytpack.py): a ~3 MB pack with a newer yt-dlp. It installs while the app runs and is
@@ -10,11 +10,13 @@ day, the cogwheel turns amber and this menu suggests checking for an update.
 import threading
 import traceback
 import webbrowser
+from tkinter import filedialog
 
 import customtkinter as ctk
 
 import engine
 import settings
+import splitter
 import theme
 import updater
 import ytpack
@@ -60,6 +62,14 @@ class SettingsMenu:
                                     image=icon("moon" if dark else "sun", ACCENT_SOFT, 15), compound="left",
                                     font=font(12))
         self.theme_btn.pack(side="right")
+        # Library: Split saves songs here as Artist\Song\ (the same setting as Library in the Split dialog)
+        lib = ctk.CTkFrame(f, fg_color="transparent")
+        lib.pack(fill="x", padx=18, pady=(10, 0))
+        ctk.CTkLabel(lib, text="Library", font=font(13), text_color=TEXT, anchor="w").pack(side="left")
+        ToolButton(lib, "Change…", self.change_library, height=30, width=92, font=font(12)).pack(side="right")
+        self.lib_lbl = ctk.CTkLabel(f, text="", image=icon("folder", MUTED, 13), compound="left",
+                                    font=font(11, mono=True), text_color=SOFT, anchor="w")
+        self.lib_lbl.pack(fill="x", padx=18, pady=(4, 0))
         self.notice = ctk.CTkFrame(f, fg_color=AMBER_BG, border_color=AMBER_BORDER, border_width=1, corner_radius=8)
         self.notice_lbl = ctk.CTkLabel(self.notice, text="", font=font(12), text_color=AMBER_TXT, justify="left",
                                        anchor="w", wraplength=self.W - 60)
@@ -79,6 +89,16 @@ class SettingsMenu:
         f.bind("<Escape>", lambda e: self.close())
         self.refresh()
         self.place()
+
+    def change_library(self):
+        d = filedialog.askdirectory(parent=self.root, initialdir=splitter.location(splitter.load_settings()),
+                                    title="Choose the NiSH Player library folder")
+        if d:
+            splitter.set_location(d)
+            self.refresh()
+            pop = getattr(self.app, "split_pop", None)
+            if pop is not None and pop.frame.winfo_exists() and pop.is_open() and not self.app.split_job:
+                pop.show("setup")              # the Split dialog shows the new library too
 
     def toggle_theme(self):
         self.app.apply_theme("light" if theme.MODE == "dark" else "dark")
@@ -104,6 +124,8 @@ class SettingsMenu:
 
     # ----- state -----
     def refresh(self):
+        lib = str(splitter.location(splitter.load_settings()))
+        self.lib_lbl.configure(text="  " + (lib if len(lib) <= 40 else "…" + lib[-39:]))
         n = settings.yt_failures_today()
         if settings.suggest_update():
             self.notice_lbl.configure(text=f"YouTube downloads have failed {n} times today. "

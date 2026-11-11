@@ -93,9 +93,9 @@ def main():
     # full job from a file: original + Auto440 copy + karaoke MP3 + 6 stems
     stages = []
     o["out_root"] = str(tmp / "out")
-    res = splitter.run(str(src), "My Song", o, stage=lambda k, f: stages.append(k), separator=sep)
-    folder = tmp / "out" / "My Song"
-    assert res["folder"] == folder
+    res = splitter.run(str(src), "My Song", o, stage=lambda k, f: stages.append(k), separator=sep, artist="Artist")
+    folder = tmp / "out" / "Artist" / "My Song"
+    assert res["folder"] == folder and res["artist"] == "Artist"
     for _, rel, _ in splitter.plan("My Song", o, ".m4a", local=True):
         assert (folder / rel).exists(), (rel, sorted(str(p.relative_to(folder)) for p in folder.rglob("*")))
     assert [s for s in dict.fromkeys(stages)] == ["download", "split", "tune", "save"], stages
@@ -131,7 +131,7 @@ def main():
     o3["tune"] = {"original": False, "karaoke": False, "stems": False}
     o3["out_root"] = str(tmp / "out3")
     res = splitter.run(str(src), "", o3, separator=sep)
-    f = tmp / "out3" / "Some Video Title"
+    f = tmp / "out3" / "Unknown Artist" / "Some Video Title"     # no artist typed, none in the file
     assert sorted(p.name for p in f.iterdir()) == ["Some Video Title KARAOKE.mp3", "~Some Video Title.nish"]
     assert res["load"][0][1] == "Karaoke" and res["project"] == f / "~Some Video Title.nish"
     # original only (a copy), no tuning -> the original is loaded
@@ -140,7 +140,8 @@ def main():
     o4["tune"] = {"original": False, "karaoke": False, "stems": False}
     o4["out_root"] = str(tmp / "out4")
     res = splitter.run(str(src), "Plain", o4, separator=None)
-    assert sorted(p.name for p in (tmp / "out4" / "Plain").iterdir()) == ["Plain Original.m4a", "~Plain.nish"]
+    assert sorted(p.name for p in (tmp / "out4" / "Unknown Artist" / "Plain").iterdir()) == \
+        ["Plain Original.m4a", "~Plain.nish"]
     assert res["load"][0][1] == "Original"
     try:
         splitter.run(str(src), "None", dict(o4, out={k: False for k in o4["out"]}), separator=None)
@@ -152,10 +153,37 @@ def main():
     o5["tune"] = {"original": True, "karaoke": False, "stems": False}
     o5["out_root"] = str(tmp / "out5")
     res = splitter.run(str(src), "Tuned", o5, separator=None)
-    assert sorted(p.name for p in (tmp / "out5" / "Tuned").iterdir()) == ["Tuned Auto440.flac", "~Tuned.nish"], \
-        sorted(p.name for p in (tmp / "out5" / "Tuned").iterdir())
+    t5 = tmp / "out5" / "Unknown Artist" / "Tuned"
+    assert sorted(p.name for p in t5.iterdir()) == ["Tuned Auto440.flac", "~Tuned.nish"], sorted(t5.iterdir())
     assert res["load"][0][1] == "Original 440 Hz"
     ok("karaoke only (MP3, original not copied), original only, only the Auto440 version, nothing chosen refused")
+
+    # the library: one folder per artist, shared by its songs; an existing song folder is never written into
+    lib = splitter.default_settings()
+    lib.update(out=o4["out"], tune=o4["tune"], out_root=str(tmp / "lib"))
+    a = splitter.run(str(src), "First", lib, artist="The Band")
+    b = splitter.run(str(src), "Second", lib, artist="The Band")
+    assert a["folder"].parent == b["folder"].parent == tmp / "lib" / "The Band"
+    assert sorted(p.name for p in (tmp / "lib").iterdir()) == ["The Band"]                # merged, no "(2)"
+    assert splitter.free_name(lib, "The Band", "First") == "First (2)"
+    assert splitter.free_name(lib, "The Band", "Third") == "Third"
+    again = splitter.run(str(src), "First", lib, artist="The Band")     # the dialog asks; the job never overwrites
+    assert again["folder"] == tmp / "lib" / "The Band" / "First (2)" and again["name"] == "First (2)"
+    assert (again["folder"] / "~First (2).nish").exists() and (again["folder"] / "First (2) Original.m4a").exists()
+    assert sorted(p.name for p in a["folder"].iterdir()) == ["First Original.m4a", "~First.nish"]  # untouched
+    assert splitter.free_name(lib, "The Band", "First") == "First (3)"
+    assert splitter.artist_name("  ") == "Unknown Artist" and splitter.artist_name('AC/DC') == "ACDC"
+    assert splitter.song_dir(lib, "", "X") == tmp / "lib" / "Unknown Artist" / "X"
+    tagged = tmp / "tagged.mp3"
+    engine._run([engine.ffmpeg_exe(), "-hide_banner", "-y", "-f", "lavfi", "-i", "sine=duration=1",
+                 "-metadata", "artist=Björk", "-metadata", "title=Jóga", str(tagged)])
+    assert engine.probe_tags(tagged) == {"artist": "Björk", "title": "Jóga"}, engine.probe_tags(tagged)
+    assert splitter.run(str(tagged), "", lib)["folder"] == tmp / "lib" / "Björk" / "tagged"     # artist from tags
+    ca = splitter.clean_artist
+    assert ca({"artists": ["Daft Punk", "Pharrell"], "channel": "x"}) == "Daft Punk"
+    assert ca({"artist": "A, B"}) == "A" and ca({"channel": "Queen - Topic"}) == "Queen" and ca({}) == ""
+    assert ca({"uploader": "Some Channel"}) == "Some Channel"
+    ok("library: artist folders shared, existing song folder -> (2), artist from tags/YouTube/Unknown Artist")
 
     # cancel
     def cancel():
