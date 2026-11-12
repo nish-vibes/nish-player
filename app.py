@@ -354,6 +354,17 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
         self.player.close()
         self.root.destroy()
 
+    def restart(self):
+        """Close and start again (after an app update), reopening the project or the tracks."""
+        if not self.confirm_discard():
+            return False
+        import apppack
+        paths = [self.project_path] if self.project_path else [l.track.path for l in self.lanes]
+        apppack.restart([p for p in paths if p and Path(p).exists()])
+        self.player.close()
+        self.root.destroy()
+        return True
+
     def bring_to_front(self):
         r = self.root
         try:
@@ -441,6 +452,9 @@ def run_gui(files=(), smoketest_dir=None):
     if smoketest_dir:
         import smoketest
         root.after(600, lambda: smoketest.run(app, smoketest_dir))
+    else:
+        import apppack
+        root.after(1500, apppack.started)      # the window is up: this app code works (see start.py)
     root.mainloop()
     if srv is not None:
         import instance
@@ -455,27 +469,47 @@ def _quiet(fn):
         traceback.print_exc()
 
 
-if __name__ == "__main__":
-    if len(sys.argv) >= 4 and sys.argv[1] == "--yt-pack-check":     # used when installing a YouTube fix
+def main(argv):
+    """Start the app (start.py calls this with the app folder it picked; `python app.py` works too)."""
+    args = list(argv[1:])
+    if len(args) >= 3 and args[0] == "--app-pack-check":       # used when installing an app update
+        import apppack
+        sys.exit(apppack.check_here(args[1], args[2], args[3] if len(args) > 3 else None))
+    if len(args) >= 3 and args[0] == "--yt-pack-check":        # used when installing a YouTube fix
         import ytpack
-        sys.exit(ytpack.check_here(sys.argv[2], sys.argv[3]))
-    if len(sys.argv) >= 4 and sys.argv[1] == "--yt-selftest":
+        sys.exit(ytpack.check_here(args[1], args[2]))
+    if len(args) >= 3 and args[0] == "--yt-selftest":
         import smoketest
-        sys.exit(smoketest.yt_selftest(sys.argv[2], sys.argv[3]))
-    if len(sys.argv) >= 3 and sys.argv[1] == "--gui-smoketest":
-        app = run_gui(smoketest_dir=sys.argv[2])
+        sys.exit(smoketest.yt_selftest(args[1], args[2]))
+    if len(args) >= 2 and args[0] == "--gui-smoketest":
+        app = run_gui(smoketest_dir=args[1])
         sys.exit(getattr(app, "smoketest_exit", 1))
+    import apppack
+    if "--wait-pid" in args:                                   # "Restart now": wait for the old window to go
+        i = args.index("--wait-pid")
+        try:
+            apppack.wait_for_exit(args[i + 1])
+        except Exception:
+            traceback.print_exc()
+        del args[i:i + 2]
     try:
-        files = [a for a in sys.argv[1:] if not a.startswith("--")]
+        files = [a for a in args if not a.startswith("--")]
         import instance
         if instance.hand_off(files):       # already running: it opens the files, this start ends here
+            apppack.started()
             sys.exit(0)
         run_gui(files=files)
+        apppack.started()                  # a clean exit counts as a good start too
     except Exception:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + traceback.format_exc())
-        try:
-            messagebox.showerror(APP_NAME, "Something went wrong. Details are in:\n" + str(LOG_FILE))
-        except Exception:
-            pass
+        if not os.environ.get("NISH_APP_FALLBACK"):      # (start.py goes back to the previous app instead)
+            try:
+                messagebox.showerror(APP_NAME, "Something went wrong. Details are in:\n" + str(LOG_FILE))
+            except Exception:
+                pass
         raise
+
+
+if __name__ == "__main__":
+    main(sys.argv)

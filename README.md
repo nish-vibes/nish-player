@@ -95,13 +95,16 @@ click **More info → Run anyway**.
   and light; the app remembers your choice.
 - **Updates** are always manual: the cogwheel in the top right shows your version and the version
   of its YouTube support, and has **Check for updates**. There are two kinds:
-  - **YouTube fixes** (about 3 MB): YouTube changes often, and the yt-dlp project that NiSH Player
-    uses to download from it follows within days. **Install YouTube fix** downloads only that part,
-    checks it, and uses it from the next YouTube download. No restart, and the app folder isn't
-    touched (fixes are kept in `%LOCALAPPDATA%\NiSH Player\youtube`). If a fix ever fails to
-    load, the app goes back to the one before it.
-  - **New versions** of the app (the full download, about 600 MB): **Download**, then **Close and
-    update** closes the app, swaps in the new version and starts it again.
+  - **App updates** (about 3 MB): new features, design changes and the latest YouTube support
+    (YouTube changes often, and the yt-dlp project that NiSH Player uses follows within days) come
+    as one small download. **Install update** downloads it, checks that it works with your
+    installation, and installs it next to the app (in `%LOCALAPPDATA%\NiSH Player`; the app folder
+    isn't touched). The YouTube part works right away; the rest after **Restart now**, which
+    reopens your project. If a new version ever fails to start, the app goes back to the one
+    before it on its own.
+  - **New full versions** (the full download, about 600 MB, with the engine and the AI models): only
+    when those change, which is rare. **Download**, then **Close and update** closes the app, swaps
+    in the new version and starts it again.
 
   Your settings (export folder, track names, Split settings) are kept in
   `%LOCALAPPDATA%\NiSH Player` and are never touched. If YouTube downloads fail five times on
@@ -116,20 +119,33 @@ The GitHub workflow builds the Windows app. It runs the style check (`ruff check
 tests, builds the `.exe` with PyInstaller (bundling ffmpeg with Rubber Band and the AI models),
 starts the app and clicks through every control, then zips it.
 
-- `main` is what users get: raising the number in `VERSION` there publishes a new release.
-- `release/<version>` branches (e.g. `release/1.6`) are for fixes to an older version; they
-  publish too when `VERSION` is raised.
+The app has two layers. The **engine** (Python, PyTorch, ffmpeg, Deno, the AI models) is the full
+download; its version is in `BASE`. The **app** (all the `.py` files: functionality and design) is
+loaded by `start.py` at start, from the full download or from a newer app update (`apppack.py`).
+
+- Versions: raise `VERSION` for every release. When the engine changes (a package version in
+  `requirements.txt` / `constraints.txt`, ffmpeg, Deno, the AI models, `NiSHPlayer.spec`), also set
+  `BASE` to the new `VERSION`: that makes a new full download.
+- `main` is what users get. A new `BASE` publishes the full release; every new `VERSION` and every
+  new yt-dlp publishes an app update on the `app-update` pre-release (`tools/build_app_pack.py`).
+  Before that, the workflow runs the new app in the users' engine (the published full download of
+  `BASE`): it imports and compiles everything and clicks through every control. If that fails, the
+  engine changed and `BASE` must be raised. YouTube support for 2.0 is still published on the
+  `youtube-pack` pre-release (`tools/build_youtube_pack.py`, `ytpack.py`).
+- `release/<version>` branches (e.g. `release/1.6`) are for fixes to an older version.
 - Other branches (e.g. `v2`) are built and tested but never published; the zip is kept as a
   build artifact for 14 days.
-- Every day the workflow checks for a new yt-dlp. If there is one, it builds and tests the app with
-  it, checks that the new YouTube pack loads in the built app, and publishes the pack on the
-  `youtube-pack` pre-release (`tools/build_youtube_pack.py` makes it; `ytpack.py` loads and installs
-  it). A YouTube fix needed right away: run the workflow by hand on `main` (Actions → Run workflow).
+- Every day the workflow checks for a new yt-dlp and, if there is one, builds, tests and publishes
+  it. Needed right away: run the workflow by hand on `main` (Actions → Run workflow).
+- The AI models, ffmpeg and Deno come from our own `build-parts` pre-release (`tools/build_parts.py`),
+  so builds never depend on outside servers. The models there are the same files as in the 2.0
+  download, checked against the hash in their names. To take a newer ffmpeg or Deno, delete it from
+  that release (and raise `BASE`).
 
 Local run (needs Python 3.12 and ffmpeg with Rubber Band on PATH):
 
 ```
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 python app.py
 python tests/test_engine.py
 python tests/test_splitter.py
@@ -137,6 +153,7 @@ python tests/test_updater.py
 python tests/test_colors.py
 python tests/test_compat.py
 python tests/test_ytpack.py
+python tests/test_apppack.py
 python app.py --gui-smoketest <folder>
 ```
 
@@ -146,13 +163,13 @@ The Split part also needs PyTorch (`pip install torch torchaudio --index-url htt
 colours there, save it over `design/colors.css` and run `python tools/sync_colors.py`, which
 updates `theme.py` (`tests/test_colors.py` fails if they don't match).
 
-**Code map**: `app.py` (start-up and main window core), `layout.py` (building the window),
+**Code map**: `start.py` (picks the app code to run), `app.py` (start-up and main window core), `layout.py` (building the window),
 `tracks.py` (tracks, ruler, automation), `speed_pitch.py` (speed, pitch, Auto 440), `project_ui.py`
 (projects), `lane.py` (one track), `widgets.py` (fader, switches, field hints), `export_dialog.py`,
 `split_ui.py` + `split_choices.py` (the Split dialog), `settings_menu.py` (cogwheel menu),
 `engine.py` (audio: decoding, playback, speed/pitch, export), `splitter.py` (download and AI split),
-`tuning.py` (Auto 440), `ytpack.py` (YouTube support as a separately updated pack),
-`project.py` (.nish files), `settings.py`, `updater.py` (app updates), `instance.py`
+`tuning.py` (Auto 440), `apppack.py` (app updates: app + YouTube), `ytpack.py` (YouTube support),
+`project.py` (.nish files), `settings.py`, `updater.py` (full updates), `instance.py`
 (one running app), `theme.py` (colours, fonts, icons), `smoketest.py` (the click-through test).
 
 Track names, settings, Split settings and the log file are stored in `%LOCALAPPDATA%\NiSH Player`.

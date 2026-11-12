@@ -7,8 +7,8 @@ on:
     branches: [main, "release/**", v2]
   workflow_dispatch:
   schedule:
-    # Daily: if there is a new yt-dlp, build and test it and publish it as a YouTube pack (~3 MB,
-    # see ytpack.py). Days without a new yt-dlp stop after a quick check.
+    # Daily: if there is a new yt-dlp, build and test it and publish it in the app update (~3 MB,
+    # apppack.py) and the YouTube pack for 2.0 (ytpack.py). Days without a new yt-dlp stop after a quick check.
     - cron: "41 4 * * *"
 
 permissions:
@@ -57,7 +57,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt "pyinstaller>=6.11"
+          pip install -r requirements.txt -c constraints.txt pyinstaller
 
       - name: Style check (ruff, settings in ruff.toml)
         run: |
@@ -68,23 +68,38 @@ jobs:
         id: rel
         shell: bash
         run: |
-          V="v$(tr -d '[:space:]' < VERSION)"
+          VER=$(tr -d '[:space:]' < VERSION)      # the app's version
+          BASE=$(tr -d '[:space:]' < BASE)        # the full download (engine + AI models) it's made for
           YTV=$(python -c "import yt_dlp.version as v; print(v.__version__)")
           echo "ytdlp=$YTV" >> "$GITHUB_OUTPUT"
-          echo "yt-dlp $YTV"
-          PUBLISH=false        # a full release (the whole app): only when VERSION is new, on main or release/**
-          PACK=false           # the YouTube pack: from main, whenever its yt-dlp is new
-          TAG="$V"
+          echo "app $VER for base $BASE, yt-dlp $YTV"
+          FULL=false           # a full release (the whole app): only when BASE is new, on main or release/**
+          UPDATE=false         # the app update (app + YouTube, ~3 MB): from main, whenever either is new
+          PACK=false           # the YouTube-only pack for 2.0: from main, whenever its yt-dlp is new
+          TAG="v$VER"
+          HAVE_BASE=false
+          if gh release view "v$BASE" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then HAVE_BASE=true; fi
           if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" == refs/heads/release/* ]]; then
-            if [[ "$GITHUB_EVENT_NAME" != "schedule" ]] && ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              PUBLISH=true
-              echo "New version $V - will publish a release if everything passes."
+            if [[ "$GITHUB_EVENT_NAME" != "schedule" && "$HAVE_BASE" == false ]]; then
+              if [[ "$VER" != "$BASE" ]]; then
+                echo "::error title=version::A new full download (BASE $BASE) must have VERSION $BASE (it is $VER)"
+                exit 1
+              fi
+              FULL=true
+              TAG="v$BASE"
+              echo "New base $BASE - will publish the full release if everything passes."
             fi
           else
-            TAG="$V-dev"
+            TAG="v$VER-dev"
             echo "Development build $TAG - kept as a build artifact, not published."
           fi
           if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            CUR=$(gh release download app-update --repo "$GITHUB_REPOSITORY" -p app-update.json -O - 2>/dev/null \
+                  | python -c "import json,sys; m=json.load(sys.stdin); print(m['version'], m['youtube'], m['base'])" 2>/dev/null || echo none)
+            if [[ "$CUR" != "$VER $YTV $BASE" ]]; then
+              UPDATE=true
+              echo "App update '$CUR' -> '$VER $YTV $BASE' - will publish it if everything passes."
+            fi
             CUR=$(gh release download youtube-pack --repo "$GITHUB_REPOSITORY" -p youtube-pack.json -O - 2>/dev/null \
                   | python -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo none)
             if [[ "$CUR" != "$YTV" ]]; then
@@ -92,39 +107,40 @@ jobs:
               echo "YouTube pack $CUR -> $YTV - will publish it if everything passes."
             fi
           fi
+          # what users run: the published full download of this base (or this build, when it is the new base)
+          USERS="dist"
+          if [[ "$FULL" == false && "$HAVE_BASE" == true ]]; then USERS="v$BASE"; fi
+          echo "Tests run the new app on: $USERS"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "update=$UPDATE" >> "$GITHUB_OUTPUT"
           echo "pack=$PACK" >> "$GITHUB_OUTPUT"
+          echo "users=$USERS" >> "$GITHUB_OUTPUT"
 
-      - name: Download ffmpeg (with Rubber Band) and Deno (for YouTube)
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force vendor, tmp | Out-Null
-          Invoke-WebRequest https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -OutFile tmp/ffmpeg.zip
-          Expand-Archive tmp/ffmpeg.zip tmp/ffmpeg
-          Get-ChildItem tmp/ffmpeg -Recurse -Include ffmpeg.exe | Copy-Item -Destination vendor
-          Invoke-WebRequest https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip -OutFile tmp/deno.zip
-          Expand-Archive tmp/deno.zip vendor -Force
-          $f = vendor/ffmpeg.exe -hide_banner -filters | Select-String rubberband
-          if (-not $f) { throw "This ffmpeg build has no rubberband filter" }
-          $f
+      - name: Get the AI models, ffmpeg and Deno (our own copies, release build-parts)
+        env:
+          PARTS_UPLOAD: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+        run: python tools/build_parts.py
 
-      - name: Download the AI models (bundled, so the first split needs no download)
+      - name: The AI models load without downloading anything
         shell: pwsh
         run: |
           $env:TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = "1"
-          python -c "import torch; torch.hub.set_dir('models'); from demucs.pretrained import get_model; [get_model(n) for n in ('htdemucs_ft', 'htdemucs_6s')]"
-          Get-ChildItem models/checkpoints | ForEach-Object { "{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
-          if (-not (Get-ChildItem models/checkpoints -Filter *.th)) { throw "No AI models were downloaded" }
+          $env:HTTPS_PROXY = "http://127.0.0.1:9"     # any download attempt fails
+          $env:HTTP_PROXY = "http://127.0.0.1:9"
+          python -c "import torch; torch.hub.set_dir('models'); from demucs.pretrained import get_model; [get_model(n) for n in ('htdemucs_ft', 'htdemucs_6s')]; print('AI models ok')"
 
       - name: Make the YouTube pack (yt-dlp + its challenge solver, shipped beside the exe)
         run: python tools/build_youtube_pack.py pack
 
-      - name: Tests (engine, splitter, updater, colours, opening 1.6 projects, YouTube pack)
+      - name: Make the app update (our code + the YouTube pack)
+        run: python tools/build_app_pack.py pack
+
+      - name: Tests (engine, splitter, updater, colours, opening 1.6 projects, YouTube pack, app update)
         shell: pwsh
         run: |
           $env:PATH = "$PWD\vendor;$env:PATH"
-          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat", "test_ytpack") {
+          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat", "test_ytpack", "test_apppack") {
             $out = python "tests/$t.py" 2>&1 | ForEach-Object { "$_" }
             $code = $LASTEXITCODE
             $out
@@ -154,11 +170,37 @@ jobs:
           }
           Write-Output "::notice title=youtube-pack::$report"
 
-      - name: GUI smoke test (opens the window and clicks through everything)
+      - name: Get the users' app (the published full download of this base)
+        if: steps.rel.outputs.users != 'dist'
+        shell: pwsh
+        run: |
+          gh release download "${{ steps.rel.outputs.users }}" --repo "$env:GITHUB_REPOSITORY" -p NiSHPlayer-windows.zip -D users-zip
+          7z x users-zip\NiSHPlayer-windows.zip -ousers -y | Out-Null
+          Remove-Item users-zip -Recurse -Force
+
+      - name: The app update runs in the users' app (import everything, compile, load YouTube)
+        shell: pwsh
+        run: |
+          $exe = if ("${{ steps.rel.outputs.users }}" -eq "dist") { "dist\NiSHPlayer\NiSHPlayer.exe" } else { "users\NiSHPlayer\NiSHPlayer.exe" }
+          $res = Join-Path $PWD "app-check.txt"
+          $p = Start-Process -FilePath $exe -ArgumentList "--app-pack-check", (Resolve-Path pack\app), $res, (Resolve-Path pack\youtube) -Wait -PassThru
+          $report = if (Test-Path $res) { Get-Content $res -Raw } else { "no result" }
+          Write-Output $report
+          if ($p.ExitCode -ne 0 -or $report -notmatch "^ok ") {
+            Write-Output ("::error title=app-update::" + ($report -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'))
+            throw "The app update doesn't run in the users' app. If the engine changed, set BASE to VERSION (a new full download)."
+          }
+          Write-Output "::notice title=app-update::$report"
+
+      - name: GUI smoke test (the new app in the users' app - opens the window and clicks through everything)
         shell: pwsh
         run: |
           $out = Join-Path $PWD "gui-smoke"
-          $p = Start-Process -FilePath "dist\NiSHPlayer\NiSHPlayer.exe" -ArgumentList "--gui-smoketest", $out -PassThru
+          if ("${{ steps.rel.outputs.users }}" -eq "dist") {
+            $p = Start-Process -FilePath "dist\NiSHPlayer\NiSHPlayer.exe" -ArgumentList "--gui-smoketest", $out -PassThru
+          } else {
+            $p = Start-Process -FilePath "users\NiSHPlayer\NiSHPlayer.exe" -ArgumentList "--app-dir", (Resolve-Path pack\app), "--gui-smoketest", $out -PassThru
+          }
           if (-not $p.WaitForExit(2400000)) { $p.Kill(); $timedOut = $true }
           $report = ""
           if (Test-Path "$out\gui_smoketest.txt") { $report = Get-Content "$out\gui_smoketest.txt" -Raw }
@@ -209,7 +251,7 @@ jobs:
           retention-days: 14
 
       - name: Publish release
-        if: steps.rel.outputs.publish == 'true'
+        if: steps.rel.outputs.full == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
@@ -219,6 +261,26 @@ jobs:
           make_latest: true
           files: NiSHPlayer-windows.zip
 
+      - name: Publish the app update
+        if: steps.rel.outputs.update == 'true'
+        shell: bash
+        run: |
+          R=app-update
+          M=$(python -c "import json; m=json.load(open('pack/app-update.json')); print(m['version'], 'for', m['base'], 'with yt-dlp', m['youtube'])")
+          NOTES="App update for NiSH Player: $M. The app installs it from the cogwheel menu; you don't need to download anything here."
+          if ! gh release view $R --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # a pre-release, so the app's "latest release" check never sees it
+            gh release create $R --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "App update" --notes "$NOTES"
+          fi
+          gh release upload $R pack/app-update-*.zip --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload $R pack/app-update.json --repo "$GITHUB_REPOSITORY" --clobber   # last: it points to the zip
+          gh release edit $R --repo "$GITHUB_REPOSITORY" --notes "$NOTES"
+          # keep the four newest updates
+          gh release view $R --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[] | [.createdAt, .name] | @tsv' \
+            | grep -P '\tapp-update-.*\.zip$' | sort -r | tail -n +5 | cut -f2 \
+            | while read -r a; do gh release delete-asset $R "$a" --repo "$GITHUB_REPOSITORY" -y; done
+
       - name: Publish the YouTube pack
         if: steps.rel.outputs.pack == 'true'
         shell: bash
@@ -226,7 +288,7 @@ jobs:
           R=youtube-pack
           YTV="${{ steps.rel.outputs.ytdlp }}"
           EJS=$(python -c "import json; print(json.load(open('pack/youtube-pack.json'))['ejs'])")
-          NOTES="YouTube support for NiSH Player 2.0 and later: yt-dlp $YTV (yt-dlp-ejs $EJS). The app installs it from the cogwheel menu; you don't need to download anything here."
+          NOTES="YouTube support for NiSH Player 2.0 (2.1 and later get it in the app update): yt-dlp $YTV (yt-dlp-ejs $EJS). The app installs it from the cogwheel menu; you don't need to download anything here."
           if ! gh release view $R --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # a pre-release, so the app's "latest release" check never sees it
             gh release create $R --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$GITHUB_SHA" \

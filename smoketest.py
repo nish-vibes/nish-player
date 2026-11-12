@@ -643,8 +643,15 @@ def run(app, out_dir):
         yield 0.3
         assert m.state == "latest" and "latest version" in m.msg.cget("text")
 
-        section("settings cog: a YouTube fix (small pack) first, also next to an app update")
+        section("settings cog: no app update for this base -> the YouTube-only fix, also next to a full update")
+        import apppack
         import ytpack
+        real_acheck, real_ainstall, real_restart = apppack.check, apppack.install, app.restart
+
+        def no_app_update():
+            raise RuntimeError("no app update published")
+
+        apppack.check = no_app_update
         real_ycheck, real_yinstall = ytpack.check, ytpack.install
         fix = {"format": 1, "version": "2099.01.01", "size": 3_100_000, "newer": True, "needs_app_update": False,
                "asset": "youtube-pack-2099.01.01.zip", "url": "https://example.invalid/p.zip"}
@@ -699,6 +706,65 @@ def run(app, out_dir):
         m.refresh()
         log("ok: YouTube fix: offered alone (no app clutter), installed with progress and a check step, "
             "offered first next to a new app version")
+
+        section("settings cog: the app update (app + YouTube in one small download), then Restart now")
+        upd = {"format": 2, "version": "9.1.0", "youtube": "2099.02.02", "base": "x", "size": 3_300_000,
+               "asset": "app-update-9.1.0-yt2099.02.02.zip", "url": "https://example.invalid/u.zip",
+               "fits": True, "app_newer": True, "yt_newer": True, "newer": True}
+        apppack.check = lambda: dict(upd)
+        updater.check = lambda: {"tag": updater.current_tag(), "newer": False, "url": None, "size": None,
+                                 "notes": ""}
+        got = []
+
+        def fake_app_install(info, progress=lambda f: None, cancelled=lambda: False, checking=lambda: None):
+            for k in range(5):
+                progress(k / 4)
+                time.sleep(0.08)
+            checking()
+            time.sleep(0.2)
+            got.append(info["version"])
+            return {"app": True, "youtube": True}
+
+        apppack.install = fake_app_install
+        restarts = []
+        app.restart = lambda: restarts.append(1)
+        m.btn.invoke()
+        for _ in range(30):
+            if m.state != "checking":
+                break
+            yield 0.1
+        yield 0.3
+        assert m.yt["state"] == "newer" and m.yt["kind"] == "app", m.yt
+        assert "Version 9.1.0 is available (3 MB), with a YouTube fix" in m.yt_msg.cget("text"), m.yt_msg.cget("text")
+        assert m.yt_btn.cget("text") == "Install update" and not m.msg.winfo_ismapped()
+        shot("6e-app-update")
+        m.yt_btn.invoke()
+        saw = False
+        for _ in range(60):
+            saw = saw or "Checking the update" in m.yt_msg.cget("text")
+            if m.yt["state"] != "installing":
+                break
+            yield 0.05
+        yield 0.3
+        assert got == ["9.1.0"] and saw and m.yt["state"] == "installed"
+        assert "Version 9.1.0 is installed. It's used after a restart. The YouTube fix already works." \
+            in m.yt_msg.cget("text"), m.yt_msg.cget("text")
+        assert m.yt_btn.cget("text") == "Restart now" and m.yt_btn.cget("fg_color") == _th.ACCENT
+        shot("6f-app-update-installed")
+        m.yt_btn.invoke()
+        assert restarts == [1]
+        m.btn.invoke()                                   # checking again keeps "Restart now"
+        for _ in range(30):
+            if m.state != "checking":
+                break
+            yield 0.1
+        yield 0.3
+        assert m.yt["state"] == "installed" and m.yt_btn.cget("text") == "Restart now"
+        apppack.check, apppack.install, app.restart = real_acheck, real_ainstall, real_restart
+        m.yt["state"], m.state = None, "idle"
+        m.refresh()
+        log("ok: app update: offered as one small download with its YouTube fix, installed with progress and a "
+            "check step, then Restart now (kept after checking again)")
         updater.check = real_check
         for _ in range(5):
             app.note_yt_failure()

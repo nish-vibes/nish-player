@@ -9,3 +9,5 @@ venv/
 gui-smoke/
 models/
 pack/
+users/
+users-zip/

@@ -1,13 +1,29 @@
 # PyInstaller build recipe. Run on Windows:  pyinstaller NiSHPlayer.spec
-# Expects ffmpeg.exe and deno.exe in vendor/ (the GitHub workflow downloads them).
+# Expects ffmpeg.exe and deno.exe in vendor/, the AI models in models/checkpoints/ (tools/build_parts.py),
+# the YouTube pack in pack/youtube and the app in pack/app (tools/build_youtube_pack.py, build_app_pack.py).
+#
+# The exe is the engine plus start.py. Our own code (every top-level .py) is analysed so everything it
+# imports gets bundled, then taken out of the exe and shipped as plain files in _internal/nish_app, so
+# app updates can replace it (see start.py and apppack.py).
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
-datas, binaries, hiddenimports = [], [], ["smoketest", "split_ui", "splitter", "theme",
-                                                  "settings", "settings_menu", "updater", "project", "project_ui",
-                                                  "instance", "split_choices",
-                                                  "lane", "widgets", "layout", "tracks", "speed_pitch", "export_dialog",
-                                                  "ytpack"]
+HERE = Path(SPECPATH).resolve()
+OURS = sorted(p.stem for p in HERE.glob("*.py") if p.stem != "start")
+datas, binaries, hiddenimports = [], [], list(OURS)
+# Standard library modules a later app update might start using, bundled now so it still fits this engine.
+hiddenimports += ["csv", "difflib", "textwrap", "uuid", "html", "html.parser", "xml.etree.ElementTree",
+                  "statistics", "fractions", "decimal", "bisect", "heapq", "colorsys", "wave", "array", "struct",
+                  "base64", "hmac", "secrets", "glob", "fnmatch", "tempfile", "calendar", "locale", "gettext",
+                  "pprint", "dataclasses", "enum", "functools", "itertools", "operator", "typing", "weakref",
+                  "copy", "pickle", "shelve", "configparser", "logging", "logging.handlers", "argparse",
+                  "platform", "getpass", "ctypes", "ctypes.wintypes", "winreg", "msvcrt", "asyncio",
+                  "concurrent.futures", "multiprocessing", "socket", "selectors", "ssl", "urllib.parse",
+                  "urllib.request", "http.client", "mimetypes", "webbrowser", "unicodedata", "codecs",
+                  "compileall", "importlib", "importlib.metadata", "zipfile", "tarfile", "gzip", "lzma", "bz2",
+                  "sqlite3", "json", "re", "shutil", "subprocess", "threading", "queue", "hashlib", "random",
+                  "math", "cmath", "datetime", "time", "zoneinfo", "string", "io", "contextlib", "traceback",
+                  "inspect", "ast", "tokenize", "email", "email.message", "smtplib", "imaplib", "ftplib"]
 # AI separation (Demucs)
 datas += collect_data_files("demucs")
 hiddenimports += collect_submodules("demucs")
@@ -40,9 +56,14 @@ else:
 if Path("models", "checkpoints").is_dir():
     datas.append(("models", "models"))
 
+if Path("pack", "app", "pack.json").is_file():
+    datas.append(("pack/app", "nish_app"))
+else:
+    raise SystemExit("no app in pack/app (run tools/build_app_pack.py pack)")
+
 a = Analysis(
-    ["app.py"],
-    pathex=[],
+    ["start.py"],
+    pathex=[str(HERE)],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -55,7 +76,12 @@ def _not_youtube(entry):
     return top not in YT_PACKAGES
 
 
-a.pure = [e for e in a.pure if _not_youtube(e)]       # yt-dlp comes from the pack, not the exe
+def _not_ours(entry):
+    name, path = entry[0], entry[1]
+    return not (name.split(".")[0] in OURS and path and Path(path).resolve().parent == HERE)
+
+
+a.pure = [e for e in a.pure if _not_youtube(e) and _not_ours(e)]   # yt-dlp and our code: from the packs
 a.datas = [e for e in a.datas if _not_youtube(e)]     # (the solver's scripts too)
 pyz = PYZ(a.pure)
 exe = EXE(

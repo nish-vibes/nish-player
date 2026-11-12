@@ -1,4 +1,5 @@
-"""Manual updates from the GitHub releases page.
+"""Manual full updates from the GitHub releases page (the whole app: engine, AI models and app; the
+small app + YouTube updates are apppack.py).
 
 check()     -> asks GitHub for the latest release
 download()  -> downloads its zip; unpack() puts it in a folder next to the app ("<app>.new")
@@ -34,21 +35,29 @@ def app_dir():
     return None
 
 
+def build_tag():
+    """The tag stamped on this build by the release workflow (e.g. 'v2.1.0' or 'v2.1.0-dev'), or ''."""
+    d = app_dir()
+    try:
+        return (d / "build_tag.txt").read_text(encoding="utf-8").strip() if d else ""
+    except OSError:
+        return ""
+
+
 def current_tag():
-    """Release tag of this build, e.g. 'v1.3.0' or 'v1.3.0-yt2026.10.10'."""
-    for base in filter(None, (app_dir(), Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "_MEIPASS", None)
-                              else None, Path(__file__).resolve().parent)):
-        f = base / "build_tag.txt"
-        if f.is_file():
-            t = f.read_text(encoding="utf-8").strip()
-            if t:
-                return t
-    for base in filter(None, (Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "_MEIPASS", None) else None,
-                              Path(__file__).resolve().parent)):
-        f = base / "VERSION"
-        if f.is_file():
-            return "v" + f.read_text(encoding="utf-8").strip()
-    return "v0"
+    """Tag of the app that is running, e.g. 'v2.1.3' (after an app update it's newer than the build)."""
+    import apppack
+    v = apppack.version()
+    stamped = build_tag()
+    if v:
+        tag = "v" + v
+        return stamped if stamped.split("-", 1)[0] == tag else tag   # keeps a '-dev' suffix
+    return stamped or "v0"
+
+
+def vkey(tag):
+    import re
+    return tuple(int(x) for x in re.findall(r"\d+", str(tag or "")))
 
 
 def version_text(tag=None):
@@ -78,7 +87,8 @@ def check():
         rel = json.loads(r.read().decode("utf-8"))
     asset = next((a for a in rel.get("assets", []) if a.get("name") == ASSET), None)
     tag = rel.get("tag_name", "")
-    return {"tag": tag, "newer": bool(tag) and tag != current_tag(), "url": asset and asset["browser_download_url"],
+    newer = bool(tag) and vkey(tag) > vkey(current_tag())    # (an app update may be ahead of the release)
+    return {"tag": tag, "newer": newer, "url": asset and asset["browser_download_url"],
             "size": asset and asset.get("size"), "notes": rel.get("body", "")}
 
 

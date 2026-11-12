@@ -1,11 +1,13 @@
 """The cogwheel menu in the top right: version, theme, the library (where Split saves songs), and updates.
 
 Two kinds of update, both manual:
-- a YouTube fix (ytpack.py): a ~3 MB pack with a newer yt-dlp. It installs while the app runs and is
-  used from the next YouTube download - no restart.
-- a new version of the app: the full download, installed by closing and restarting (updater.py).
-When both are new, the quick YouTube fix comes first. If YouTube extraction fails five times on one
-day, the cogwheel turns amber and this menu suggests checking for an update.
+- a quick update (apppack.py, ~3 MB): the app itself (functionality and design) together with YouTube
+  support. It installs while the app runs; YouTube support is used from the next download, the app
+  from the next start ("Restart now"). An installation whose base is older than the published update
+  gets the YouTube-only fix instead (ytpack.py), until it takes the full download.
+- a new base: the full download, installed by closing and restarting (updater.py).
+When both are new, the quick update comes first. If YouTube extraction fails five times on one day,
+the cogwheel turns amber and this menu suggests checking for an update.
 """
 import threading
 import traceback
@@ -14,6 +16,7 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
+import apppack
 import engine
 import settings
 import splitter
@@ -37,8 +40,14 @@ class SettingsMenu:
         self.fraction = 0.0
         self.cancel = False
         self.stage = None
-        # the YouTube fix: None (nothing new), newer, installing, installed, error
-        self.yt = {"state": None, "info": None, "fraction": 0.0, "error": "", "cancel": False}
+        # the quick update: None (nothing new), newer, installing, installed, error. kind: "app" (app +
+        # YouTube, apppack.py) or "yt" (YouTube only, ytpack.py); done: which parts got installed
+        self.yt = {"state": None, "info": None, "fraction": 0.0, "error": "", "cancel": False, "kind": "yt",
+                   "done": {"app": False, "youtube": False}}
+        waiting = apppack.installed()      # an app update installed earlier, used from the next start
+        if waiting:
+            self.yt.update(state="installed", kind="app", info={"version": waiting, "app_newer": True},
+                           done={"app": True, "youtube": False})
         ready = updater.staged_update()    # downloaded earlier but not installed yet
         if ready:
             self.stage, tag = ready
@@ -184,27 +193,42 @@ class SettingsMenu:
         self._button(self.btn, btn, primary)
 
     def _refresh_yt(self):
-        """The YouTube fix's message and button (above the app's). Returns its state."""
+        """The quick update's message and button (above the full update's). Returns its state."""
         y = self.yt
         st = y["state"]
+        info = y["info"] or {}
+        app = y["kind"] == "app" and info.get("app_newer")
+        what = "update" if app else "YouTube fix"
         if st == "newer":
-            size = f" ({y['info']['size'] / 1e6:.0f} MB)" if y["info"].get("size") else ""
-            self._msg(f"A YouTube fix is available{size}. It installs in seconds, no restart.", label=self.yt_msg)
-            self._button(self.yt_btn, "Install YouTube fix", True)
+            size = f" ({info['size'] / 1e6:.0f} MB)" if info.get("size") else ""
+            if app:
+                also = ", with a YouTube fix" if info.get("yt_newer") else ""
+                self._msg(f"Version {info['version']} is available{size}{also}. It installs in seconds.",
+                          label=self.yt_msg)
+                self._button(self.yt_btn, "Install update", True)
+            else:
+                self._msg(f"A YouTube fix is available{size}. It installs in seconds, no restart.",
+                          label=self.yt_msg)
+                self._button(self.yt_btn, "Install YouTube fix", True)
         elif st == "installing":
             if y["fraction"] < 1:
-                text = f"Installing the YouTube fix… {int(y['fraction'] * 100)}%"
+                text = f"Installing the {what}… {int(y['fraction'] * 100)}%"
             else:
-                text = "Checking the YouTube fix…"
+                text = f"Checking the {what}…"
             self._msg(text, spin=True, label=self.yt_msg)
             self.yt_bar.set(y["fraction"])
             self.yt_bar.pack(fill="x", pady=(0, 10))
             if y["fraction"] < 1:
                 self._button(self.yt_btn, "Cancel", False)
+        elif st == "installed" and y["done"]["app"]:
+            yt = " The YouTube fix already works." if y["done"]["youtube"] else ""
+            self._msg(f"Version {info['version']} is installed. It's used after a restart.{yt}", ok=True,
+                      label=self.yt_msg)
+            self._button(self.yt_btn, "Restart now", True)
         elif st == "installed":
             self._msg("YouTube fix installed. It's used from the next YouTube download.", ok=True, label=self.yt_msg)
         elif st == "error":
-            self._msg(y["error"] or "The YouTube fix couldn't be installed.", warn=True, label=self.yt_msg)
+            self._msg(y["error"] or f"The {what} couldn't be installed.", warn=True, label=self.yt_msg)
             self._button(self.yt_btn, "Try again", False)
         if st in ("installed", "error") and self.state not in ("latest",):
             self.yt_msg.pack_configure(pady=(0, 12))
@@ -268,19 +292,29 @@ class SettingsMenu:
 
     def start_check(self):
         self.state = "checking"
-        if self.yt["state"] in ("installed", "error"):
+        waiting = self.yt["state"] == "installed" and self.yt["done"]["app"]   # keeps "Restart now"
+        if self.yt["state"] in ("installed", "error") and not waiting:
             self.yt["state"] = None
         self.refresh()
 
         def work():
+            quick, m = None, None
             try:
-                pack = ytpack.check()
-                yt_new = pack if pack["newer"] else None
+                m = apppack.check()
+                if m["newer"]:
+                    quick = ("app", m)
             except Exception:
-                traceback.print_exc()          # no YouTube fix published (yet), or offline: just the app check
-                yt_new = None
-            if self.yt["state"] in (None, "installed", "error") or yt_new:
-                self.yt.update(state="newer" if yt_new else None, info=yt_new, error="")
+                traceback.print_exc()          # nothing published (yet), or offline
+            if quick is None and not (m and m["fits"]):
+                try:                           # older base (or no app update yet): the YouTube-only fix
+                    pack = ytpack.check()
+                    quick = ("yt", pack) if pack["newer"] else None
+                except Exception:
+                    traceback.print_exc()
+            waiting = self.yt["state"] == "installed" and self.yt["done"]["app"]
+            if not waiting and (self.yt["state"] in (None, "installed", "error") or quick):
+                self.yt.update(state="newer" if quick else None, kind=quick[0] if quick else "yt",
+                               info=quick[1] if quick else None, error="")
             try:
                 rel = updater.check()
                 if not rel["url"] and rel["newer"]:
@@ -327,6 +361,8 @@ class SettingsMenu:
             self.start_yt_install()
         elif st == "installing":
             self.yt["cancel"] = True
+        elif st == "installed" and self.yt["done"]["app"]:
+            self.app.restart()
 
     def start_yt_install(self):
         y = self.yt
@@ -344,9 +380,14 @@ class SettingsMenu:
 
         def work():
             try:
-                ytpack.install(info, progress=progress, cancelled=lambda: y["cancel"], checking=checking)
-                y.update(state="installed", fraction=1.0)
-                self.app.events.put(("yt_fix_installed",))
+                if y["kind"] == "app":
+                    done = apppack.install(info, progress=progress, cancelled=lambda: y["cancel"], checking=checking)
+                else:
+                    ytpack.install(info, progress=progress, cancelled=lambda: y["cancel"], checking=checking)
+                    done = {"app": False, "youtube": True}
+                y.update(state="installed" if any(done.values()) else None, fraction=1.0, done=done)
+                if done["youtube"]:
+                    self.app.events.put(("yt_fix_installed",))
             except Exception as e:
                 traceback.print_exc()
                 if y["cancel"]:

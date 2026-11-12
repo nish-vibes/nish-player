@@ -1,9 +1,11 @@
 # PyTorch is installed separately (CPU build) - see .github/workflows/build.yml
-numpy
-sounddevice
+# The engine's versions are pinned (with constraints.txt), so every build bundles the same engine and app
+# updates keep working on it. yt-dlp is not pinned: it travels in the YouTube pack (ytpack.py).
+numpy==2.5.4
+sounddevice==0.5.6
 customtkinter==5.2.2
-tkinterdnd2
-pillow
+tkinterdnd2==0.7.0
+pillow==13.0.0
 yt-dlp[default]
 demucs==4.0.1
-soundfile
+soundfile==0.14.0
