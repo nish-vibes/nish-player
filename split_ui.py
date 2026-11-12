@@ -409,7 +409,9 @@ class SplitPopover:
             name = splitter.free_name(self.opts(), self.known_artist() or "", name)
         is_file = self.source() == "file"
         ext = (self.info or {}).get("ext") or ".opus"
-        items = [("project", splitter.project_rel(name), "")] + splitter.plan(name, self.opts(), ext, local=is_file)
+        artist = self.current_artist()
+        items = [("project", splitter.project_rel(name, artist), "")] + splitter.plan(name, self.opts(), ext,
+                                                                                    local=is_file, artist=artist)
         notes = {"project": "project", "original": "original", "tuned": "tuned copy", "karaoke": "karaoke · MP3 320"}
         if len(items) == 1:
             self.preview.configure(text="Choose what to make.")

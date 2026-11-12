@@ -2,8 +2,8 @@
 an Auto440 copy, a karaoke MP3 and/or stems (AI separation with Demucs), plus a project file.
 
 Folder layout in the library (suffixes are configurable, added after the name with a space):
-    <library>/<Artist>/<Name>/~<Name>.nish                   project (sorts to the top)
-    <library>/<Artist>/<Name>/<Name> Original.<ext>           original, not re-encoded (Opus saved as .opus)
+    <library>/<Artist>/<Name>/~<Artist> - <Name>.nish          project (sorts to the top)
+    <library>/<Artist>/<Name>/~<Artist> - <Name> ORIGINAL.<ext>   original, not re-encoded (Opus saved as .opus)
     <library>/<Artist>/<Name>/<Name> Auto440.flac             the original tuned to A = 440 Hz
     <library>/<Artist>/<Name>/<Name> KARAOKE[ Auto440].mp3    karaoke, always MP3 320
     <library>/<Artist>/<Name>/Separated Stems - <Name>/<Name> VOX[ Auto440].flac ...   4 or 6 stems
@@ -45,7 +45,7 @@ def _desktop():
 
 
 DEFAULTS = {
-    "suffixes": {"original": "Original", "tune": "Auto440", "karaoke": "KARAOKE", "vocals": "VOX",
+    "suffixes": {"original": "ORIGINAL", "tune": "Auto440", "karaoke": "KARAOKE", "vocals": "VOX",
                  "drums": "DRM", "bass": "BASS", "guitar": "GTR", "piano": "KEYS", "other": "MISC"},
     "stems_folder": "Separated Stems - {name}",
     "fmt": "FLAC",              # stems and the Auto440 copy (karaoke is always MP3 320)
@@ -137,7 +137,12 @@ def _n(name, *parts):
     return " ".join([name] + [p for p in parts if p])
 
 
-def plan(name, opts, orig_ext=".opus", local=False, tuned=True):
+def top_name(artist, name):
+    """'~Artist - Name': the start of the project's and the original's file names ('~' sorts them to the top)."""
+    return f"~{artist_name(artist)} - {name}"
+
+
+def plan(name, opts, orig_ext=".opus", local=False, tuned=True, artist=""):
     """What will be written, as [(key, relative path, label)] in display order.
 
     tuned=False: Auto 440 couldn't be used (no tuning detected), so nothing gets the Auto440 tag."""
@@ -147,7 +152,7 @@ def plan(name, opts, orig_ext=".opus", local=False, tuned=True):
     T = lambda k: sfx["tune"] if (tuned and tune.get(k)) else ""
     items = []
     if out["original"]:
-        items.append(("original", _n(name, sfx["original"]) + orig_ext, "Original"))
+        items.append(("original", _n(top_name(artist, name), sfx["original"]) + orig_ext, "Original"))
     if tuned and tune["original"]:
         items.append(("tuned", _n(name, sfx["tune"]) + ext, LABELS["tuned"]))
     if out["karaoke"]:
@@ -192,9 +197,9 @@ def clean_artist(info):
     return re.sub(r"\s+-\s+Topic$", "", str(a).strip(), flags=re.I)
 
 
-def project_rel(name, opts=None):
+def project_rel(name, artist=""):
     """The project file in the song folder; '~' keeps it at the top of the folder."""
-    return f"~{name}.nish"
+    return f"{top_name(artist, name)}.nish"
 
 
 def model_for(opts, local=False):
@@ -440,7 +445,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
             folder.mkdir(parents=True, exist_ok=True)
             src = Path(source)
             if out["original"]:
-                orig = folder / (_n(name, sfx["original"]) + src.suffix.lower())
+                orig = folder / (_n(top_name(artist, name), sfx["original"]) + src.suffix.lower())
                 if src.resolve() != orig.resolve() and not orig.exists():
                     shutil.copy2(src, orig)
                 files["original"] = orig
@@ -455,7 +460,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
             name = free_name(opts, artist, name)    # never into an existing song folder (the dialog asks first)
             folder = root / artist_name(artist) / name
             folder.mkdir(parents=True, exist_ok=True)
-            orig = download(source, folder, _n(name, sfx["original"]), lambda p: stage("download", p),
+            orig = download(source, folder, _n(top_name(artist, name), sfx["original"]), lambda p: stage("download", p),
                             check_cancel, work=work)
             files["original"] = orig
         if not orig.exists() or orig.stat().st_size == 0:
@@ -514,7 +519,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
             outputs.pop("tuned", None)        # no Auto440 copy when the tuning couldn't be found
 
         # 4. save (one shared gain for headroom, so the stems still add up to the song)
-        items = plan(name, opts, orig.suffix.lower(), local=local, tuned=tuned)
+        items = plan(name, opts, orig.suffix.lower(), local=local, tuned=tuned, artist=artist)
         rel = {k: r for k, r, _ in items}
         labels = {k: lbl for k, _, lbl in items}
         stage("save", 0.0)
@@ -538,7 +543,7 @@ def run(source, name, opts, stage=lambda key, frac: None, check_cancel=lambda: N
         if load:
             import project
             try:   # a project in the song folder, so the song can be opened again later
-                proj = project.save(folder / project_rel(name), project.new_state(load))
+                proj = project.save(folder / project_rel(name, artist), project.new_state(load))
             except Exception:
                 traceback.print_exc()
                 proj = None

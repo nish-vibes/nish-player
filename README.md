@@ -51,8 +51,8 @@ click **More info → Run anyway**.
   ```
   Artist\
     My Song\
-      ~My Song.nish                      the project (sorts to the top)
-      My Song Original.opus
+      ~Artist - My Song.nish             the project (sorts to the top)
+      ~Artist - My Song ORIGINAL.opus
       My Song Auto440.flac
       My Song KARAOKE Auto440.mp3
       Separated Stems - My Song\
