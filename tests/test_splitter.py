@@ -74,7 +74,8 @@ def main():
     yt = [r for _, r, _ in splitter.plan("A", o2, ".opus")]
     assert yt[0] == "~Unknown Artist - A ORIGINAL.opus" and "A Auto440.wav" not in yt, yt
     o2b = dict(o2, tune=dict(o2["tune"], original=True))
-    assert [r for _, r, _ in splitter.plan("A", o2b, ".opus")][:2] == ["~Unknown Artist - A ORIGINAL.opus", "A Auto440.wav"]
+    assert [r for _, r, _ in splitter.plan("A", o2b, ".opus")][:2] == [
+        "~Unknown Artist - A ORIGINAL.opus", "A Auto440.wav"]
     # a file: the Auto440 version without copying the original
     assert [r for _, r, _ in splitter.plan("A", o2b, ".wav", local=True)][0] == "A Auto440.wav"
     assert splitter.workspace_keys(o) == splitter.SIX and splitter.workspace_keys(o2) == splitter.FOUR
@@ -134,7 +135,8 @@ def main():
     o3["out_root"] = str(tmp / "out3")
     res = splitter.run(str(src), "", o3, separator=sep)
     f = tmp / "out3" / "Unknown Artist" / "Some Video Title"     # no artist typed, none in the file
-    assert sorted(p.name for p in f.iterdir()) == ["Some Video Title KARAOKE.mp3", "~Unknown Artist - Some Video Title.nish"]
+    assert sorted(p.name for p in f.iterdir()) == [
+        "Some Video Title KARAOKE.mp3", "~Unknown Artist - Some Video Title.nish"]
     assert res["load"][0][1] == "Karaoke" and res["project"] == f / "~Unknown Artist - Some Video Title.nish"
     # original only (a copy), no tuning -> the original is loaded
     o4 = splitter.default_settings()
@@ -156,7 +158,8 @@ def main():
     o5["out_root"] = str(tmp / "out5")
     res = splitter.run(str(src), "Tuned", o5, separator=None)
     t5 = tmp / "out5" / "Unknown Artist" / "Tuned"
-    assert sorted(p.name for p in t5.iterdir()) == ["Tuned Auto440.flac", "~Unknown Artist - Tuned.nish"], sorted(t5.iterdir())
+    assert sorted(p.name for p in t5.iterdir()) == [
+        "Tuned Auto440.flac", "~Unknown Artist - Tuned.nish"], sorted(t5.iterdir())
     assert res["load"][0][1] == "Original 440 Hz"
     ok("karaoke only (MP3, original not copied), original only, only the Auto440 version, nothing chosen refused")
 
@@ -171,8 +174,11 @@ def main():
     assert splitter.free_name(lib, "The Band", "Third") == "Third"
     again = splitter.run(str(src), "First", lib, artist="The Band")     # the dialog asks; the job never overwrites
     assert again["folder"] == tmp / "lib" / "The Band" / "First (2)" and again["name"] == "First (2)"
-    assert (again["folder"] / "~The Band - First (2).nish").exists() and (again["folder"] / "~The Band - First (2) ORIGINAL.m4a").exists()
-    assert sorted(p.name for p in a["folder"].iterdir()) == ["~The Band - First ORIGINAL.m4a", "~The Band - First.nish"]  # untouched
+    assert (again["folder"] / "~The Band - First (2).nish").exists()
+    assert (again["folder"] / "~The Band - First (2) ORIGINAL.m4a").exists()
+    # untouched:
+    assert sorted(p.name for p in a["folder"].iterdir()) == [
+        "~The Band - First ORIGINAL.m4a", "~The Band - First.nish"]
     assert splitter.free_name(lib, "The Band", "First") == "First (3)"
     assert splitter.artist_name("  ") == "Unknown Artist" and splitter.artist_name('AC/DC') == "ACDC"
     assert splitter.song_dir(lib, "", "X") == tmp / "lib" / "Unknown Artist" / "X"

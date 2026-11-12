@@ -988,7 +988,8 @@ def run(app, out_dir):
         txt = pop.preview.cget("text")
         assert txt.splitlines()[0] == "Smoke Band\\" and txt.splitlines()[1].strip() == "Smoke Song\\", txt
         assert txt.splitlines()[2].strip().startswith("~Smoke Band - Smoke Song.nish"), txt     # project at the top
-        for want in ("~Smoke Band - Smoke Song ORIGINAL.wav", "Smoke Song Auto440.flac", "Smoke Song KARAOKE Auto440.mp3",
+        for want in ("~Smoke Band - Smoke Song ORIGINAL.wav", "Smoke Song Auto440.flac",
+                     "Smoke Song KARAOKE Auto440.mp3",
                      "Separated Stems - Smoke Song", "Smoke Song VOX Auto440.flac", "Smoke Song KEYS Auto440.flac"):
             assert want in txt, (want, txt)
         log("ok: Split popover: YouTube link or a file (Browse or drop), name, karaoke + stems, Auto 440 + "
@@ -1061,7 +1062,8 @@ def run(app, out_dir):
             if not os.environ.get("NISH_FAKE_SPLIT"):
                 assert Path(torch.hub.get_dir()).resolve() == splitter.MODELS_DIR.resolve(), torch.hub.get_dir()
             log(f"ok: AI models bundled with the app: {have}")
-        assert len(made) == 10 and "~Smoke Band - Smoke Song.nish" in made and "Smoke Song KARAOKE Auto440.mp3" in made, made
+        assert len(made) == 10 and "~Smoke Band - Smoke Song.nish" in made, made
+        assert "Smoke Song KARAOKE Auto440.mp3" in made, made
         t0 = time.time()
         while len(app.lanes) < 6:
             assert time.time() - t0 < 60, "stems were not added to the workspace"
