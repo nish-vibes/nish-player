@@ -132,6 +132,11 @@ loaded by `start.py` at start, from the full download or from a newer app update
   `BASE`): it imports and compiles everything and clicks through every control. If that fails, the
   engine changed and `BASE` must be raised. YouTube support for 2.0 is still published on the
   `youtube-pack` pre-release (`tools/build_youtube_pack.py`, `ytpack.py`).
+- YouTube changes: every 6 hours the workflow checks PyPI for a new yt-dlp (it follows YouTube's
+  changes). If there is one, it builds, tests and publishes the app update and the YouTube pack with
+  it, with no commit needed. The app (2.1.1 and later) installs it by itself (`autoupdate.py`): 20
+  seconds after start, every 6 hours, and right after a failed YouTube download. It can be switched
+  off in the cogwheel menu ("Automatic updates"). Full downloads are never installed automatically.
 - `release/<version>` branches (e.g. `release/1.6`) are for fixes to an older version.
 - Other branches (e.g. `v2`) are built and tested but never published; the zip is kept as a
   build artifact for 14 days.
@@ -154,6 +159,7 @@ python tests/test_colors.py
 python tests/test_compat.py
 python tests/test_ytpack.py
 python tests/test_apppack.py
+python tests/test_autoupdate.py
 python app.py --gui-smoketest <folder>
 ```
 
@@ -168,7 +174,7 @@ updates `theme.py` (`tests/test_colors.py` fails if they don't match).
 (projects), `lane.py` (one track), `widgets.py` (fader, switches, field hints), `export_dialog.py`,
 `split_ui.py` + `split_choices.py` (the Split dialog), `settings_menu.py` (cogwheel menu),
 `engine.py` (audio: decoding, playback, speed/pitch, export), `splitter.py` (download and AI split),
-`tuning.py` (Auto 440), `apppack.py` (app updates: app + YouTube), `ytpack.py` (YouTube support),
+`tuning.py` (Auto 440), `apppack.py` (app updates: app + YouTube), `autoupdate.py` (installs them by itself), `ytpack.py` (YouTube support),
 `project.py` (.nish files), `settings.py`, `updater.py` (full updates), `instance.py`
 (one running app), `theme.py` (colours, fonts, icons), `smoketest.py` (the click-through test).
 

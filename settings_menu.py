@@ -1,15 +1,18 @@
 """The cogwheel menu in the top right: version, theme, the library (where Split saves songs), and updates.
 
-Two kinds of update, both manual:
+Two kinds of update:
 - a quick update (apppack.py, ~3 MB): the app itself (functionality and design) together with YouTube
   support. It installs while the app runs; YouTube support is used from the next download, the app
   from the next start ("Restart now"). An installation whose base is older than the published update
   gets the YouTube-only fix instead (ytpack.py), until it takes the full download.
-- a new base: the full download, installed by closing and restarting (updater.py).
+  With "Automatic updates" on (the default) it installs by itself (autoupdate.py); this menu then
+  says what was installed.
+- a new base: the full download, installed by closing and restarting (updater.py). Always manual.
 When both are new, the quick update comes first. If YouTube extraction fails five times on one day,
 the cogwheel turns amber and this menu suggests checking for an update.
 """
 import threading
+import tkinter as tk
 import traceback
 import webbrowser
 from tkinter import filedialog
@@ -17,6 +20,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 import apppack
+import autoupdate
 import engine
 import settings
 import splitter
@@ -85,6 +89,18 @@ class SettingsMenu:
         self.notice_lbl.pack(fill="x", padx=12, pady=8)
         self.sep = ctk.CTkFrame(f, fg_color=BORDER, height=1, corner_radius=0)
         self.sep.pack(fill="x", padx=18, pady=(12, 0))
+        # Automatic updates: the quick update (app + YouTube) installs by itself (autoupdate.py)
+        auto = ctk.CTkFrame(f, fg_color="transparent")
+        auto.pack(fill="x", padx=18, pady=(10, 0))
+        self.auto_var = tk.BooleanVar(value=autoupdate.enabled())
+        self.auto_sw = ctk.CTkSwitch(auto, text="Automatic updates", variable=self.auto_var, font=font(13),
+                                     text_color=TEXT, progress_color=ACCENT, button_color=SWITCH_KNOB,
+                                     button_hover_color=SWITCH_KNOB, fg_color=SWITCH_OFF, switch_width=36,
+                                     switch_height=20, command=self.toggle_auto)
+        self.auto_sw.pack(side="left")
+        self.auto_lbl = ctk.CTkLabel(f, text="", font=font(11), text_color=MUTED, anchor="w", justify="left",
+                                     wraplength=self.W - 40)
+        self.auto_lbl.pack(fill="x", padx=18, pady=(2, 0))
         self.upd = ctk.CTkFrame(f, fg_color="transparent")
         self.upd.pack(fill="x", padx=18, pady=(10, 16))
         self.yt_msg = ctk.CTkLabel(self.upd, text="", font=font(12), text_color=SOFT, anchor="w", justify="left",
@@ -108,6 +124,10 @@ class SettingsMenu:
             pop = getattr(self.app, "split_pop", None)
             if pop is not None and pop.frame.winfo_exists() and pop.is_open() and not self.app.split_job:
                 pop.show("setup")              # the Split dialog shows the new library too
+
+    def toggle_auto(self):
+        autoupdate.set_enabled(self.auto_var.get())
+        self.refresh()
 
     def toggle_theme(self):
         self.app.apply_theme("light" if theme.MODE == "dark" else "dark")
@@ -145,6 +165,9 @@ class SettingsMenu:
         yv = ytpack.version()
         self.version_lbl.configure(text="Version " + updater.version_text()
                                    + (f"\nYouTube support {yv}" if yv else ""))
+        self.auto_lbl.configure(text="YouTube fixes and app improvements install by themselves."
+                                if autoupdate.enabled() else "Updates install when you choose.")
+        self._sync_auto()
         for w in (self.yt_msg, self.yt_bar, self.yt_btn, self.msg, self.bar, self.btn):
             w.pack_forget()
         yt = self._refresh_yt()
@@ -192,6 +215,19 @@ class SettingsMenu:
             btn = "Try again"
         self._button(self.btn, btn, primary)
 
+    def _sync_auto(self):
+        """Show what autoupdate.py installed in the background."""
+        y, last = self.yt, autoupdate.last
+        if y["state"] == "installing" or not (last["app"] or last["youtube"]):
+            return
+        if last["app"] and last["app"] == apppack.installed():
+            if not (y["state"] == "installed" and y["done"]["app"]):
+                y.update(state="installed", kind="app", info={"version": last["app"], "app_newer": True},
+                         done={"app": True, "youtube": bool(last["youtube"])}, auto=True)
+        elif last["youtube"] and y["state"] in (None, "newer", "error"):
+            y.update(state="installed", kind="yt", info={"version": last["youtube"]},
+                     done={"app": False, "youtube": True}, auto=True)
+
     def _refresh_yt(self):
         """The quick update's message and button (above the full update's). Returns its state."""
         y = self.yt
@@ -222,9 +258,13 @@ class SettingsMenu:
                 self._button(self.yt_btn, "Cancel", False)
         elif st == "installed" and y["done"]["app"]:
             yt = " The YouTube fix already works." if y["done"]["youtube"] else ""
-            self._msg(f"Version {info['version']} is installed. It's used after a restart.{yt}", ok=True,
+            how = "was installed automatically" if y.get("auto") else "is installed"
+            self._msg(f"Version {info['version']} {how}. It's used after a restart.{yt}", ok=True,
                       label=self.yt_msg)
             self._button(self.yt_btn, "Restart now", True)
+        elif st == "installed" and y.get("auto"):
+            self._msg(f"YouTube support was updated automatically ({info.get('version')}). "
+                      "It's used from the next YouTube download.", ok=True, label=self.yt_msg)
         elif st == "installed":
             self._msg("YouTube fix installed. It's used from the next YouTube download.", ok=True, label=self.yt_msg)
         elif st == "error":
@@ -380,12 +420,9 @@ class SettingsMenu:
 
         def work():
             try:
-                if y["kind"] == "app":
-                    done = apppack.install(info, progress=progress, cancelled=lambda: y["cancel"], checking=checking)
-                else:
-                    ytpack.install(info, progress=progress, cancelled=lambda: y["cancel"], checking=checking)
-                    done = {"app": False, "youtube": True}
-                y.update(state="installed" if any(done.values()) else None, fraction=1.0, done=done)
+                with autoupdate.LOCK:          # an automatic installation finishes first
+                    done = install()
+                y.update(state="installed" if any(done.values()) else None, fraction=1.0, done=done, auto=False)
                 if done["youtube"]:
                     self.app.events.put(("yt_fix_installed",))
             except Exception as e:
@@ -396,5 +433,11 @@ class SettingsMenu:
                     msg = str(e) if isinstance(e, RuntimeError) else "Couldn't reach GitHub. Check your connection."
                     y.update(state="error", error=msg.split("\n")[0])
             self.app.events.put(("settings_refresh",))
+
+        def install():
+            if y["kind"] == "app":
+                return apppack.install(info, progress=progress, cancelled=lambda: y["cancel"], checking=checking)
+            ytpack.install(info, progress=progress, cancelled=lambda: y["cancel"], checking=checking)
+            return {"app": False, "youtube": True}
 
         threading.Thread(target=work, daemon=True).start()

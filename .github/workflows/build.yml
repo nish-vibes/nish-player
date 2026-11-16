@@ -7,16 +7,18 @@ on:
     branches: [main, "release/**", v2]
   workflow_dispatch:
   schedule:
-    # Daily: if there is a new yt-dlp, build and test it and publish it in the app update (~3 MB,
-    # apppack.py) and the YouTube pack for 2.0 (ytpack.py). Days without a new yt-dlp stop after a quick check.
-    - cron: "41 4 * * *"
+    # Every 6 hours: if there is a new yt-dlp (it follows YouTube's changes), build and test it and
+    # publish it in the app update (~3 MB, apppack.py) and the YouTube pack for 2.0 (ytpack.py).
+    # The app installs it by itself (autoupdate.py). No new yt-dlp: the run stops after a quick check.
+    - cron: "41 */6 * * *"
 
 permissions:
   contents: write
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  # a push replaces an older build; a scheduled check waits instead (it must never cancel a release build)
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   check:
@@ -140,7 +142,7 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "$PWD\vendor;$env:PATH"
-          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat", "test_ytpack", "test_apppack") {
+          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat", "test_ytpack", "test_apppack", "test_autoupdate") {
             $out = python "tests/$t.py" 2>&1 | ForEach-Object { "$_" }
             $code = $LASTEXITCODE
             $out

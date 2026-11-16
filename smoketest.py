@@ -765,6 +765,23 @@ def run(app, out_dir):
         m.refresh()
         log("ok: app update: offered as one small download with its YouTube fix, installed with progress and a "
             "check step, then Restart now (kept after checking again)")
+        import autoupdate
+        assert m.auto_sw.winfo_ismapped() and m.auto_var.get() and "by themselves" in m.auto_lbl.cget("text")
+        autoupdate.last.update(youtube="2099.03.03")    # what a background installation leaves
+        m.refresh()
+        yield 0.2
+        assert "YouTube support was updated automatically (2099.03.03)" in m.yt_msg.cget("text"), \
+            m.yt_msg.cget("text")
+        shot("6g-auto-updated")
+        m.auto_sw.toggle()
+        yield 0.1
+        assert settings.get("auto_update") is False and "when you choose" in m.auto_lbl.cget("text")
+        m.auto_sw.toggle()
+        assert settings.get("auto_update") is True
+        autoupdate.last.update(youtube=None)
+        m.yt["state"] = None
+        m.refresh()
+        log("ok: automatic updates: on by default, says what it installed, can be switched off")
         updater.check = real_check
         for _ in range(5):
             app.note_yt_failure()

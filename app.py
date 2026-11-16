@@ -265,6 +265,8 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
             elif kind == "yt_fix_installed":
                 settings.clear_yt_failures()
                 self._style_cog()
+                if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
+                    self.settings_pop.refresh()
             elif kind == "settings_refresh":
                 if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
                     self.settings_pop.refresh()
@@ -394,8 +396,15 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
         self.cog_btn.configure(image=icon("cog", AMBER if warn else TEXT2, 18),
                                border_color=AMBER_BORDER if warn else BORDER2)
 
+    def auto_updated(self):
+        """autoupdate.py installed something (called from its thread)."""
+        self.events.put(("yt_fix_installed",))
+
     def note_yt_failure(self):
         settings.note_yt_failure()
+        if not getattr(self, "smoketest", False):
+            import autoupdate
+            autoupdate.youtube_failed(self.auto_updated)    # YouTube may have changed: look for a fix
         self._style_cog()
         if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
             self.settings_pop.refresh()
@@ -442,6 +451,7 @@ def run_gui(files=(), smoketest_dir=None):
     gc.disable()        # garbage is collected on the main thread only (App._collect_garbage)
     root = make_root()
     app = App(root)
+    app.smoketest = bool(smoketest_dir)     # no network: no automatic update checks
     if files:
         root.after(200, lambda: app.open_paths(files))
     srv = None
@@ -454,7 +464,9 @@ def run_gui(files=(), smoketest_dir=None):
         root.after(600, lambda: smoketest.run(app, smoketest_dir))
     else:
         import apppack
+        import autoupdate
         root.after(1500, apppack.started)      # the window is up: this app code works (see start.py)
+        autoupdate.start(root, app.auto_updated)   # quiet checks; installs the quick update by itself
     root.mainloop()
     if srv is not None:
         import instance
