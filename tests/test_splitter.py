@@ -52,12 +52,12 @@ def main():
     o["tune"] = {"original": True, "karaoke": True, "stems": True}
     names = [r for _, r, _ in splitter.plan("My Song", o, ".opus")]
     assert names == ["~Unknown Artist - My Song ORIGINAL.opus", "My Song Auto440.flac", "My Song KARAOKE Auto440.mp3",
-                     "Separated Stems - My Song/My Song VOX Auto440.flac",
-                     "Separated Stems - My Song/My Song DRM Auto440.flac",
-                     "Separated Stems - My Song/My Song BASS Auto440.flac",
-                     "Separated Stems - My Song/My Song GTR Auto440.flac",
-                     "Separated Stems - My Song/My Song KEYS Auto440.flac",
-                     "Separated Stems - My Song/My Song MISC Auto440.flac"], names
+                     "Separated Stems - My Song/My Song Vocals Auto440.flac",
+                     "Separated Stems - My Song/My Song Drums Auto440.flac",
+                     "Separated Stems - My Song/My Song Bass Auto440.flac",
+                     "Separated Stems - My Song/My Song Guitar Auto440.flac",
+                     "Separated Stems - My Song/My Song Piano Auto440.flac",
+                     "Separated Stems - My Song/My Song Other Auto440.flac"], names
     assert splitter.project_rel("My Song") == "~Unknown Artist - My Song.nish"
     assert splitter.project_rel("My Song", "Abba") == "~Abba - My Song.nish"
     assert [r for _, r, _ in splitter.plan("My Song", o, ".opus", artist="Abba")][0] == "~Abba - My Song ORIGINAL.opus"
@@ -67,8 +67,8 @@ def main():
     o2["out"] = {"original": False, "karaoke": True, "stems": True, "stems6": False}
     o2["tune"] = {"original": False, "karaoke": False, "stems": True}
     assert [r for _, r, _ in splitter.plan("A", o2, ".wav", local=True)] == [
-        "A KARAOKE.mp3", "Separated Stems - A/A VOX Auto440.wav", "Separated Stems - A/A DRM Auto440.wav",
-        "Separated Stems - A/A BASS Auto440.wav", "Separated Stems - A/A MISC Auto440.wav"]
+        "A KARAOKE.mp3", "Separated Stems - A/A Vocals Auto440.wav", "Separated Stems - A/A Drums Auto440.wav",
+        "Separated Stems - A/A Bass Auto440.wav", "Separated Stems - A/A Other Auto440.wav"]
     assert splitter.model_for(o2, local=True) == "htdemucs_ft"
     # YouTube always keeps the original; its Auto440 copy only when that switch is on
     yt = [r for _, r, _ in splitter.plan("A", o2, ".opus")]
@@ -202,6 +202,16 @@ def main():
     except splitter.Cancelled:
         ok("cancel stops the job")
     test_original_kept_as_opus()
+    # the old default stem codes (VOX, DRM, ...) become the track names; a name the user chose stays
+    import json as _json
+    old = splitter.default_settings()
+    old["suffixes"].update(vocals="VOX", drums="DRM", piano="KEYS", other="Backing")
+    splitter.SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    splitter.SETTINGS_FILE.write_text(_json.dumps(old), encoding="utf-8")
+    sfx = splitter.load_settings()["suffixes"]
+    assert (sfx["vocals"], sfx["drums"], sfx["piano"], sfx["other"]) == ("Vocals", "Drums", "Piano", "Backing"), sfx
+    splitter.SETTINGS_FILE.unlink()
+    print("ok: old default stem codes are renamed to the track names; custom names are kept")
     print("SPLITTER TESTS PASSED")
     return 0
 

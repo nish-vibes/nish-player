@@ -157,8 +157,9 @@ class SettingsMenu:
         self.lib_lbl.configure(text="  " + (lib if len(lib) <= 40 else "…" + lib[-39:]))
         n = settings.yt_failures_today()
         if settings.suggest_update():
-            self.notice_lbl.configure(text=f"YouTube downloads have failed {n} times today. "
-                                           "Checking for an update may fix this.")
+            self.notice_lbl.configure(text=f"YouTube downloads have failed {n} times today. " + (
+                "NiSH Player looks for a fix by itself; you can also check now." if autoupdate.enabled()
+                else "Checking for an update may fix this."))
             self.notice.pack(fill="x", padx=18, pady=(10, 0), before=self.sep)
         else:
             self.notice.pack_forget()
@@ -174,8 +175,8 @@ class SettingsMenu:
         st, rel = self.state, self.release
         primary = False
         if st == "latest" and yt in ("newer", "installing", "installed", "error"):
-            # nothing new for the app: the YouTube fix says it all (and "Check again" stays below it)
-            btn = None if yt in ("newer", "installing", "error") else "Check again"
+            # nothing new for the app: the YouTube fix says it all (and "Check for updates" stays below it)
+            btn = None if yt in ("newer", "installing", "error") else "Check for updates"
             self._button(self.btn, btn, False)
             return
         if st == "idle":
@@ -185,7 +186,7 @@ class SettingsMenu:
             btn = None
         elif st == "latest":
             self._msg("You have the latest version.", ok=True)
-            btn = "Check again"
+            btn = "Check for updates"
         elif st == "newer":
             size = f" ({rel['size'] / 1e6:.0f} MB)" if rel.get("size") else ""
             also = " also" if yt in ("newer", "installing") else ""

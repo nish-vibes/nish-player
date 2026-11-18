@@ -32,7 +32,7 @@ CANVAS_COLORS = {
     "TEXT2": ("#d6d9de", "#2a2f37"),         # --text-2
     "SOFT": ("#b9bec6", "#454d58"),          # --soft
     "MUTED": ("#8a919b", "#5b6370"),         # --muted
-    "DIM": ("#6b727c", "#6b7380"),           # --dim
+    "DIM": ("#818891", "#656d79"),           # --dim
     "ACCENT": ("#7c9cff", "#3d5fd9"),        # --accent
     "ACCENT_TXT": ("#0f1114", "#ffffff"),    # --on-accent
     "ACCENT_SOFT": ("#9fb4ff", "#3350c2"),   # --accent-text
@@ -60,7 +60,7 @@ CANVAS_COLORS = {
     "AMBER_BADGE": ("#3a3220", "#fbefcb"),   # --amber-bg
 }
 CANVAS_TRACKS = [   # (strong, soft) per lane, as (dark, light): --track-N, --track-N-soft
-    (("#7c9cff", "#3d5fd9"), ("#33405e", "#c9d4fa")),
+    (("#c3a6ff", "#7b4fd6"), ("#443d61", "#dacdf7")),
     (("#f2a65a", "#cf7a20"), ("#5a4430", "#f5d8b8")),
     (("#5fd0a4", "#1f9a6d"), ("#2c5246", "#bfe6d6")),
     (("#e07bb8", "#c24d8c"), ("#55344a", "#e79bc3")),
@@ -99,7 +99,7 @@ GROUPS = {   # colours that come in sets
     "SOLO_ON": (("#4a3f1c", "#fff0c4"), ("#e8c45a", "#c99a1a"), ("#ffe08a", "#6e4a00")),
 }
 TRACK_PAIRS = CANVAS_TRACKS + [   # more lanes than the canvas shows: (strong, soft) as (dark, light)
-    (("#b48cf2", "#7a52d6"), ("#45385e", "#dccdf7")),
+    (("#a6d46a", "#5d8f1f"), ("#3b4a2a", "#d9ebc1")),
     (("#e08a7b", "#c65a47"), ("#553530", "#f5cfc8")),
 ]
 MODE = "dark"
@@ -319,6 +319,18 @@ class ToolButton(ctk.CTkButton):
             opts["font"] = font(13, "bold")
         opts.update(kw)
         super().__init__(master, **opts)
+
+
+class RoundButton(ctk.CTkButton):
+    """A round button that stays as wide as it is tall. CTkButton keeps its corner radius free on
+    both sides of the content, so a button with radius = half its size grows wider than tall (an
+    oval or a stretched rounded square). Here only the border is kept free."""
+
+    def _create_grid(self):
+        super()._create_grid()
+        free = self._apply_widget_scaling(max(self._border_width + 1, self._border_spacing))
+        self.grid_columnconfigure(0, minsize=free)
+        self.grid_columnconfigure(4, minsize=free)
 
 
 # ---------------------------------------------------------------------------

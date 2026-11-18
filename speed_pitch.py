@@ -125,7 +125,7 @@ class SpeedPitchMixin:
     def _update_busy(self):
         if self.player.render_busy > 0:
             frame = (int(self.root.tk.call("clock", "milliseconds")) // 90) % 12
-            self.busy_lbl.configure(text="  Polishing…", text_color=ACCENT_SOFT,
+            self.busy_lbl.configure(text="  Improving sound quality…", text_color=ACCENT_SOFT,
                                     image=icon(f"spin{frame}", ACCENT_SOFT, 14))
         elif self.player.render_error:
             self.busy_lbl.configure(text="Couldn't apply speed & pitch – see the log", text_color=AMBER_TXT)

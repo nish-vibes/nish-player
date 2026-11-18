@@ -126,7 +126,11 @@ class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
             root.bind_all(f"<KeyPress-{k}>", lambda e: self._selected_key(Lane.toggle_solo))
         for k in ("m", "M"):
             root.bind_all(f"<KeyPress-{k}>", lambda e: self._selected_key(Lane.toggle_mute))
+        for k in ("l", "L"):
+            root.bind_all(f"<KeyPress-{k}>", lambda e: None if self._typing() else (self.toggle_loop(), "break")[1])
         root.bind_all("<Home>", lambda e: None if self._typing() else self.seek(0))
+        root.bind_all("<Control-z>", lambda e: None if self._typing() else
+                      ("break" if self.undo_remove() else None))
         root.bind_all("<Control-s>", lambda e: (self.save_project(), "break")[1])
         root.bind_all("<Control-S>", lambda e: (self.save_project(save_as=True), "break")[1])
         root.bind_all("<Button-1>", self._click_anywhere, add="+")

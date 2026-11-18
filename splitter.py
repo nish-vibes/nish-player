@@ -6,7 +6,7 @@ Folder layout in the library (suffixes are configurable, added after the name wi
     <library>/<Artist>/<Name>/~<Artist> - <Name> ORIGINAL.<ext>   original, not re-encoded (Opus saved as .opus)
     <library>/<Artist>/<Name>/<Name> Auto440.flac             the original tuned to A = 440 Hz
     <library>/<Artist>/<Name>/<Name> KARAOKE[ Auto440].mp3    karaoke, always MP3 320
-    <library>/<Artist>/<Name>/Separated Stems - <Name>/<Name> VOX[ Auto440].flac ...   4 or 6 stems
+    <library>/<Artist>/<Name>/Separated Stems - <Name>/<Name> Vocals[ Auto440].flac ...   4 or 6 stems
 An artist folder that exists is shared by all that artist's songs; a song folder that exists is never
 written into: the Split dialog asks first and uses '<Name> (2)' (see free_name).
 YouTube imports always keep the original (and its Auto440 copy when that switch is on).
@@ -45,8 +45,9 @@ def _desktop():
 
 
 DEFAULTS = {
-    "suffixes": {"original": "ORIGINAL", "tune": "Auto440", "karaoke": "KARAOKE", "vocals": "VOX",
-                 "drums": "DRM", "bass": "BASS", "guitar": "GTR", "piano": "KEYS", "other": "MISC"},
+    # stems are named like their tracks in the player (Vocals, not VOX), so a name means one thing
+    "suffixes": {"original": "ORIGINAL", "tune": "Auto440", "karaoke": "KARAOKE", "vocals": "Vocals",
+                 "drums": "Drums", "bass": "Bass", "guitar": "Guitar", "piano": "Piano", "other": "Other"},
     "stems_folder": "Separated Stems - {name}",
     "fmt": "FLAC",              # stems and the Auto440 copy (karaoke is always MP3 320)
     "out_root": "",             # '' = the Desktop
@@ -54,7 +55,11 @@ DEFAULTS = {
     "tune": {"original": True, "karaoke": True, "stems": True},
     "workspace": True,
     "source": "youtube",        # "youtube" (a link) or "file" (a file on this computer)
+    "stems_last": "stems6",     # 4 or 6 stems, used when Stems is ticked again
+    "show_files": False,        # the Split dialog's file list, folded away by default
 }
+OLD_STEM_SUFFIXES = {"vocals": ("VOX", "Vocals"), "drums": ("DRM", "Drums"), "bass": ("BASS", "Bass"),
+                     "guitar": ("GTR", "Guitar"), "piano": ("KEYS", "Piano"), "other": ("MISC", "Other")}
 FORMATS = {"FLAC": ".flac", "WAV": ".wav", "MP3": ".mp3", "OPUS": ".opus"}
 HEADROOM = 0.891  # -1 dBFS: the loudest output peak is brought down to this (never boosted)
 
@@ -84,6 +89,9 @@ def load_settings():
             s[k] = v
     if s["fmt"] not in FORMATS:
         s["fmt"] = "FLAC"
+    for k, (old, new) in OLD_STEM_SUFFIXES.items():     # the old default codes become the track names
+        if s["suffixes"].get(k) == old:
+            s["suffixes"][k] = new
     if s["out"]["stems"] and s["out"]["stems6"]:
         s["out"]["stems"] = False
     return s

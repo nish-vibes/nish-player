@@ -136,7 +136,28 @@ def run(app, out_dir):
         lane.on_volume(60)
         g = dict(zip([l.track.label for l in app.lanes], app.player.gains()))
         assert g == {"Lead vocals": 0.6, "Drums": 0.0, "Other": 1.0}, g
-        log("ok: mute, solo and volume")
+        full = lane.colors()[0]
+        lane.vol.set(2)
+        lane.on_volume(2)
+        assert lane.colors()[0] != full and lane.canvas.itemcget(lane.bars[-1], "fill") == lane.colors()[1]
+        lane.vol.set(60)
+        lane.on_volume(60)
+        log("ok: mute, solo and volume (a quiet track's waveform is dimmer)")
+        assert not app.drop.winfo_ismapped()          # tracks loaded: the drop zone gives its space to them
+        app._drop_highlight(True)                     # files dragged over the window: it comes back
+        yield 0.1
+        assert app.drop.winfo_ismapped()
+        app._drop_highlight(False)
+        yield 0.1
+        assert not app.drop.winfo_ismapped()
+        quiet = app.lanes[1]
+        quiet._set_hot(False)
+        if not quiet.selected and not quiet.track.auto_on:
+            assert str(quiet.remove_btn.cget("state")) == "disabled" and str(quiet.auto_btn.cget("state")) == "disabled"
+        quiet._set_hot(True)
+        assert str(quiet.remove_btn.cget("state")) == "normal" and str(quiet.auto_btn.cget("state")) == "normal"
+        quiet._set_hot(False)
+        log("ok: drop zone only while empty or dragging; A and × show on hover")
 
         section("selection, keyboard S / M, Ctrl+click on S, reorder with the grip")
         assert app.selected is app.lanes[0] and app.lanes[0].selected
@@ -206,9 +227,9 @@ def run(app, out_dir):
         app.player.playing = False
         log("ok: slider change goes to the real-time stretcher immediately")
         yield 0.6
-        assert app.busy_lbl.cget("text").strip() == "Polishing…" and app.busy_lbl.cget("image"), \
+        assert app.busy_lbl.cget("text").strip() == "Improving sound quality…" and app.busy_lbl.cget("image"), \
             app.busy_lbl.cget("text")
-        log("ok: spinner + 'Polishing…' while the high-quality version renders")
+        log("ok: spinner + 'Improving sound quality…' while the high-quality version renders")
         t0 = time.time()
         while app.player.render_busy:
             assert time.time() - t0 < 90
@@ -432,7 +453,11 @@ def run(app, out_dir):
         app.speed_slider.set(1.0)
         app.on_speed(1.0)
         app._update_title()
-        assert app.is_dirty() and "•" in app.root.title()
+        assert app.is_dirty() and app.root.title().startswith("● Test Project – "), app.root.title()
+        real_path, app.project_path = app.project_path, str(out / "~Smoke Band - Smoke Song.nish")
+        app._update_title()
+        assert app.root.title().startswith("● Smoke Band - Smoke Song – "), app.root.title()   # no '~'
+        app.project_path = real_path
         asked = []
         app.ask_save_changes = lambda: (asked.append(1), False)[1]      # "Don't save"
         app.open_project(pth)
@@ -687,7 +712,7 @@ def run(app, out_dir):
             yield 0.05
         yield 0.3
         assert packs_installed == ["2099.01.01"] and m.yt["state"] == "installed" and saw_checking
-        assert "YouTube fix installed" in m.yt_msg.cget("text") and m.btn.cget("text") == "Check again"
+        assert "YouTube fix installed" in m.yt_msg.cget("text") and m.btn.cget("text") == "Check for updates"
         shot("6c-youtube-fix-installed")
         updater.check = lambda: {"tag": "v9.9.9", "newer": True, "url": "https://example.invalid/x.zip",
                                  "size": 600_000_000, "notes": ""}
@@ -847,11 +872,11 @@ def run(app, out_dir):
         yield 0.2
         assert app.player.region == r and abs(app.player.position() - 0.8) < 0.02
         assert app.player.active_region() is None
-        assert app.loop_ring.cget("border_color") == theme.DECK               # off: no lit ring
+        assert app.loop_btn.cget("fg_color") == theme.BTN                      # off: an outlined button
         app.loop_btn.invoke()
         yield 0.2
         assert app.player.loop and app.player.active_region() == r
-        assert app.loop_ring.cget("border_color") == theme.ACCENT and app.loop_btn.cget("fg_color") == theme.ACCENT
+        assert app.loop_btn.cget("fg_color") == theme.ACCENT_TINT and app.loop_btn.cget("border_color") == theme.ACCENT
         assert app.fade_inner.winfo_ismapped() and app.player.loop_fade == 1.0
         app.fade_slider.set(0.5)
         app.on_fade(0.5)
@@ -894,7 +919,10 @@ def run(app, out_dir):
         assert app.player.region is None
         app.loop_btn.invoke()
         yield 0.2
-        assert not app.fade_inner.winfo_ismapped() and app.loop_ring.cget("border_color") == theme.DECK
+        assert not app.fade_inner.winfo_ismapped() and app.loop_btn.cget("fg_color") == theme.BTN
+        app.root.update_idletasks()
+        for b in (app.play_btn, app.loop_btn):                                 # round: as wide as tall
+            assert abs(b.winfo_width() - b.winfo_height()) <= 2, (b.winfo_width(), b.winfo_height())
         app._style_play(True)                                                  # playing: pause, strong accent, lit ring
         assert app.play_btn.cget("fg_color") == theme.ACCENT_STRONG
         assert app.play_ring.cget("border_color") == theme.ACCENT
@@ -902,13 +930,28 @@ def run(app, out_dir):
         app._shown_playing = None
         yield 0.1
         assert app.play_btn.cget("fg_color") == theme.ACCENT and app.play_ring.cget("border_color") == theme.DECK
-        log("ok: double-click on the loop area clears it; loop and play light their ring while active")
+        log("ok: double-click on the loop area clears it; Loop on = accent tint, Play lights its ring; "
+            "both stay round")
 
         section("remove and clear")
         drums = next(l for l in app.lanes if l.track.label == "Drums")   # lanes were rebuilt by the project reopen
+        at = app.lanes.index(drums)
+        drums.track.volume = 0.5
         app.remove_lane(drums)
         yield 0.2
         assert len(app.lanes) == 2 and len(app.player.tracks) == 2
+        assert app.undo_toast is not None and app.undo_toast.winfo_ismapped()
+        shot("9b-undo")
+        assert app.undo_remove()                      # Undo: back in its place, as it was
+        yield 0.2
+        back = app.lanes[at]
+        assert back.track.label == "Drums" and abs(back.track.volume - 0.5) < 1e-6 and len(app.player.tracks) == 3
+        assert [t for t in app.player.tracks] == [l.track for l in app.lanes] and app.undo_toast is None
+        assert not app.undo_remove()                  # nothing left to undo
+        app.remove_lane(back)
+        yield 0.2
+        assert len(app.lanes) == 2 and len(app.player.tracks) == 2
+        log("ok: a removed track comes back with Undo, in its place")
         app.clear_all()
         yield 0.2
         assert not app.lanes and app.count_lbl.cget("text") == "NO TRACKS"
@@ -953,7 +996,7 @@ def run(app, out_dir):
         pop.set_source("youtube")
         yield 0.3
         assert pop.yt_row.winfo_ismapped() and not pop.file_row.winfo_ismapped()
-        assert pop.go.cget("text") == "DOWNLOAD" and "always kept" in texts(), texts()
+        assert pop.go.cget("text") == "Split song" and "always kept" in texts(), texts()
         assert ("toggle", "original") not in [h[4] for h in ch.hits]     # YouTube: the original can't be unticked
         assert splitter.effective(pop.s, False)[0]["original"]
         shot("3a-split-youtube")
@@ -979,7 +1022,14 @@ def run(app, out_dir):
         yield 0.2
         click("toggle", "stems6")                   # 6 Stems replaces 4 Stems
         assert pop.s["out"]["stems6"] and not pop.s["out"]["stems"]
-        assert pop.go.cget("text") == "SPLIT" and any(t.startswith("copy \u2192") for t in texts()), texts()
+        assert pop.go.cget("text") == "Split song" and any(t.startswith("copy \u2192") for t in texts()), texts()
+        click("toggle", "stems_box")                # untick Stems; ticking again brings back 6
+        assert not (pop.s["out"]["stems"] or pop.s["out"]["stems6"])
+        click("toggle", "stems_box")
+        assert pop.s["out"]["stems6"] and not pop.s["out"]["stems"]
+        click("toggle", "stems")                    # the 4 | 6 switch
+        assert pop.s["out"]["stems"] and not pop.s["out"]["stems6"]
+        click("toggle", "stems6")
         tabs = [h[4][1] for h in ch.hits if h[4][0] == "tune"]
         assert sorted(tabs) == ["karaoke", "original", "stems"], tabs   # an Auto 440 for each choice
         click("tune", "karaoke")
@@ -989,7 +1039,11 @@ def run(app, out_dir):
         assert not pop.s["out"]["original"] and pop.s["tune"]["original"]
         assert "Smoke Song Auto440.flac" in pop.preview.cget("text") and "ORIGINAL.wav" not in pop.preview.cget("text")
         click("toggle", "original")
-        assert "Desktop" not in splitter.location(pop.s) and pop.loc_lbl.cget("text").strip().endswith("yt")
+        assert "Desktop" not in splitter.location(pop.s) and "yt" in pop.loc_lbl.cget("text"), pop.loc_lbl.cget("text")
+        assert not pop.preview.winfo_ismapped() and pop.files_btn.cget("text").startswith("Show ")
+        pop.files_btn.invoke()                      # the file list is folded away until asked for
+        yield 0.2
+        assert pop.preview.winfo_ismapped() and pop.files_btn.cget("text") == "Hide files"
         click("cog")
         yield 0.3
         assert pop.suf.winfo_ismapped()
@@ -1007,7 +1061,7 @@ def run(app, out_dir):
         assert txt.splitlines()[2].strip().startswith("~Smoke Band - Smoke Song.nish"), txt     # project at the top
         for want in ("~Smoke Band - Smoke Song ORIGINAL.wav", "Smoke Song Auto440.flac",
                      "Smoke Song KARAOKE Auto440.mp3",
-                     "Separated Stems - Smoke Song", "Smoke Song VOX Auto440.flac", "Smoke Song KEYS Auto440.flac"):
+                     "Separated Stems - Smoke Song", "Smoke Song Vocals Auto440.flac", "Smoke Song Piano Auto440.flac"):
             assert want in txt, (want, txt)
         log("ok: Split popover: YouTube link or a file (Browse or drop), name, karaoke + stems, Auto 440 + "
             "tuned copy, suffixes, folder preview")

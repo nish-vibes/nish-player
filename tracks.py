@@ -302,14 +302,70 @@ class TracksMixin:
         self.hide_auto_tip()
         if self.selected is lane:
             self.selected = None
+        index = self.lanes.index(lane)
         self.player.remove(lane.track)
         lane.destroy()
         self.lanes.remove(lane)
         self.refresh_all()
         if self.auto:
             self.start_analysis()
+        self._removed = (index, lane.track, (lane.color, lane.dim))
+        self._show_undo(f"{lane.track.label} removed")
+
+    # ----- undo a removed track -----
+    UNDO_MS = 8000
+
+    def _show_undo(self, text):
+        """A small notice over the bottom of the tracks: '<Track> removed   Undo' (also Ctrl+Z)."""
+        self._hide_undo()
+        t = self.undo_toast = ctk.CTkFrame(self.root, fg_color=POPOVER, border_color=BORDER_POP, border_width=1,
+                                           corner_radius=10)
+        ctk.CTkLabel(t, text=text, font=font(13), text_color=TEXT2).pack(side="left", padx=(14, 10), pady=8)
+        ctk.CTkButton(t, text="Undo", width=64, height=28, corner_radius=6, font=font(13, "bold"),
+                      fg_color="transparent", hover_color=BTN_HOVER, text_color=ACCENT_SOFT,
+                      command=self.undo_remove).pack(side="left", padx=(0, 8), pady=6)
+        self.root.update_idletasks()
+        box = self.lanes_box.master
+        x = box.winfo_rootx() - self.root.winfo_rootx() + box.winfo_width() / 2
+        y = box.winfo_rooty() - self.root.winfo_rooty() + box.winfo_height() - 14
+        t.place(x=x, y=y, anchor="s")
+        t.lift()
+        self._undo_job = self.root.after(self.UNDO_MS, self._hide_undo)
+
+    def _hide_undo(self):
+        job, self._undo_job = getattr(self, "_undo_job", None), None
+        if job is not None:
+            self.root.after_cancel(job)
+        t, self.undo_toast = getattr(self, "undo_toast", None), None
+        if t is not None and t.winfo_exists():
+            t.destroy()
+
+    def undo_remove(self):
+        """Put the last removed track back where it was, as it was (volume, mute, solo, automation)."""
+        removed, self._removed = getattr(self, "_removed", None), None
+        self._hide_undo()
+        if not removed:
+            return False
+        index, track, colors = removed
+        lane = Lane(self, self.lanes_box, track, colors)
+        index = min(index, len(self.lanes))
+        self.lanes.insert(index, lane)
+        self.player.add(track)
+        with self.player.lock:
+            self.player.tracks = [l.track for l in self.lanes]
+        lane.vol.set(round(track.volume * 100))
+        lane.on_volume(round(track.volume * 100))
+        if track.auto_pts:
+            lane.set_automation(track.auto_on, track.auto_pts)
+        self.select(lane)
+        self.refresh_all()
+        if self.auto:
+            self.start_analysis()
+        return True
 
     def clear_all(self):
+        self._removed = None
+        self._hide_undo()
         self.close_vol_pop()
         self.hide_auto_tip()
         self.player.clear()
@@ -338,6 +394,8 @@ class TracksMixin:
             self.song_lbl.pack_forget()
         self.refresh_lanes()
         self.draw_ruler()
+        self._draw_drop()
+        self.root.after_idle(self._fit_scrollbar)
 
     def refresh_lanes(self):
         gains = self.player.gains()
@@ -382,17 +440,25 @@ class TracksMixin:
             sp = self.player.speed
             label = f"{fmt_time(r[0] / engine.SR / sp)} – {fmt_time(r[1] / engine.SR / sp)}"
             if x1 - x0 > 110:
+                lw = c.tk.call("font", "measure", (MONO, 9), label)
                 c.create_text((x0 + x1) / 2, 15, text=label, fill=ACCENT_SOFT if on else MUTED,
                               font=(MONO, 9))
+                busy = [((x0 + x1) / 2 - lw / 2 - 8, (x0 + x1) / 2 + lw / 2 + 8)]
+            else:
+                busy = []
+            busy += [(x0 - 4, x0 + 4), (x1 - 4, x1 + 4)]       # the loop's edges
+        else:
+            busy = []
         step = next((s for s in (5, 10, 15, 20, 30, 60, 120, 300) if dur / s <= 9), 600)
         t = 0
         while t <= dur:
             x = 8 + span * t / dur
             c.create_line(x, 23, x, 29, fill=BORDER2)
-            if not r:
-                c.create_text(x + 3, 14, text=fmt_time(t), anchor="w", fill=MUTED, font=(MONO, 9))
-            else:
-                c.create_text(x + 3, 9, text=fmt_time(t), anchor="w", fill=DIM, font=(MONO, 8))
+            txt = fmt_time(t)
+            tw = c.tk.call("font", "measure", (MONO, 9), txt)
+            # a time mark is left out where it would run into the loop's label or edges
+            if not any(x + 3 < b1 and x + 3 + tw > b0 for b0, b1 in busy):
+                c.create_text(x + 3, 14, text=txt, anchor="w", fill=MUTED, font=(MONO, 9))
             t += step
         self._ruler_len = self._ruler_key()
 

@@ -163,8 +163,10 @@ class ProjectMixin:
 
     def _update_title(self):
         if self.project_path:
-            dot = " •" if self.is_dirty() else ""
-            self.root.title(f"{Path(self.project_path).stem}{dot} – {APP_NAME}")
+            # '~' only sorts the project file to the top of its folder: not part of the name
+            name = Path(self.project_path).stem.lstrip("~").strip() or Path(self.project_path).stem
+            dot = "● " if self.is_dirty() else ""
+            self.root.title(f"{dot}{name} – {APP_NAME}")
         else:
             self.root.title(APP_NAME)
 

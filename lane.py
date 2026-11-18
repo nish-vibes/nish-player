@@ -8,7 +8,7 @@ import numpy as np
 
 import engine
 from theme import *  # noqa: F401,F403
-from widgets import ForkSwitch, MasterFader, ctrl_reset  # noqa: F401
+from widgets import ForkSwitch, MasterFader, ctrl_reset, hover_hint  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +101,17 @@ class Lane:
         head.bind("<B1-Motion>", lambda e: self.app.resize_move(e))
         head.bind("<ButtonRelease-1>", lambda e: self.app.resize_end())
         head.bind("<Double-Button-1>", lambda e: self._edge_double(head, e))
+        hover_hint(self.mute_btn, "Mute  ·  M")
+        hover_hint(self.solo_btn, "Solo  ·  S   (Ctrl+click: only this track)")
+        hover_hint(self.auto_btn, "Volume automation: draw the volume over time")
+        hover_hint(self.v_btn, "Volume")
+        hover_hint(self.remove_btn, "Remove track")
+        # A and × show while the mouse is over the lane (or it is selected); A stays while automation is on
+        self.hot = False
+        self._hot_job = None
+        for w in (self.frame, head, self.canvas):
+            w.bind("<Enter>", lambda e: self._set_hot(True), add="+")
+            w.bind("<Leave>", lambda e: self._check_hot(), add="+")
         self.selected = False
         self.line = ctk.CTkFrame(self.frame, fg_color=BORDER, height=1, corner_radius=0)
         self.line.grid(row=1, column=0, columnspan=2, sticky="ew")
@@ -112,6 +123,35 @@ class Lane:
         self._resizing = False
         self.layout()
         self.refresh_buttons()
+
+    # --- hover: A and × ---
+    def _set_hot(self, on):
+        if self._hot_job is not None:
+            try:
+                self.frame.after_cancel(self._hot_job)
+            except tk.TclError:
+                pass
+            self._hot_job = None
+        if on != self.hot:
+            self.hot = on
+            self.refresh_buttons()
+
+    def _check_hot(self):
+        """Leave also fires when the mouse moves onto a child widget: look where it really is."""
+        def check():
+            self._hot_job = None
+            try:
+                x, y = self.frame.winfo_pointerxy()
+                w = self.frame.winfo_containing(x, y)
+            except (tk.TclError, KeyError):
+                w = None
+            inside = w is not None and str(w).startswith(str(self.frame))
+            self._set_hot(inside)
+        if self._hot_job is None:
+            self._hot_job = self.frame.after(40, check)
+
+    def shows_tools(self):
+        return self.hot or self.selected
 
     # --- layout (normal: two rows; compact: one row) ---
     def layout(self):
@@ -182,6 +222,7 @@ class Lane:
         self.track.volume = float(v) / 100.0
         if not self.track.auto_on:
             self.vol_lbl.configure(text=f"{int(round(v))}%")
+        self.recolor()
         self.app.volume_changed(self)
 
     def toggle_auto(self):
@@ -245,6 +286,7 @@ class Lane:
             self.stripe.place_forget()
         self.canvas.configure(bg=SELECTED_WAVE if on else WAVE)
         self.refresh_volume_row()
+        self.refresh_buttons()
         self.draw()
 
     def refresh_buttons(self):
@@ -256,11 +298,19 @@ class Lane:
             else:
                 btn.configure(fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT,
                               hover_color=BTN_HOVER, border_width=1)
+        bg = SELECTED if self.selected else LANE_BG
+        show = self.shows_tools()
         if self.track.auto_on:
             self.auto_btn.configure(fg_color=GREEN_BG, border_color=GREEN_BORDER, text_color=GREEN_TXT,
-                                    hover_color=GREEN_BG)
-        else:
-            self.auto_btn.configure(fg_color=BTN, border_color=BORDER2, text_color=DIM, hover_color=BTN_HOVER)
+                                    hover_color=GREEN_BG, state="normal")
+        elif show or self.compact:
+            self.auto_btn.configure(fg_color=BTN, border_color=BORDER2, text_color=DIM, hover_color=BTN_HOVER,
+                                    state="normal")
+        else:                       # hidden until the mouse is over the lane (keeps its place)
+            self.auto_btn.configure(fg_color=bg, border_color=bg, text_color=bg, hover_color=bg,
+                                    state="disabled", text_color_disabled=bg)
+        self.remove_btn.configure(image=icon("close", DIM if show else bg, 11), state="normal" if show else "disabled",
+                                  hover_color=BTN_HOVER if show else bg)
 
     def set_silent(self, silent):
         if silent != self.silent:
@@ -277,7 +327,24 @@ class Lane:
             return blend(self.color, bg, 0.65), blend(self.dim, bg, 0.55)
         if self.track.auto_on:
             return blend(self.color, bg, 0.55), blend(self.dim, bg, 0.55)
-        return self.color, self.dim
+        # quieter tracks look quieter: up to 60 % towards the background at volume 0
+        k = 0.6 * (1 - math.sqrt(max(0.0, min(1.0, self.track.volume))))
+        if k < 0.01:
+            return self.color, self.dim
+        return blend(self.color, bg, k), blend(self.dim, bg, k * 0.8)
+
+    def recolor(self):
+        """New colours for the bars without redrawing them (volume changes while dragging)."""
+        if not self.bars:
+            return
+        bright, dim = self.colors()
+        key = (bright, dim)
+        if key == getattr(self, "_cols", None):
+            return
+        self._cols = key
+        c = self.canvas
+        for i, b in enumerate(self.bars):
+            c.itemconfigure(b, fill=bright if i < self.played else dim)
 
     def draw(self):
         c = self.canvas
@@ -286,6 +353,7 @@ class Lane:
         pk = self.track.peaks
         n = max(1, (w - 16) // self.BAR)
         bright, dim = self.colors()
+        self._cols = (bright, dim)
         self.bars = []
         idx = len(pk) * np.arange(n + 1) // n
         mid = h / 2

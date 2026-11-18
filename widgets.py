@@ -4,7 +4,6 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-import theme
 from theme import *  # noqa: F401,F403
 
 
@@ -121,8 +120,8 @@ class MasterFader:
 
 
 class ForkSwitch(ctk.CTkFrame):
-    """The Auto 440 switch: a small switch whose knob carries a tuning fork, then its label.
-    Follows `variable`; clicking toggles it and calls `command`."""
+    """The Auto 440 switch: a small switch (the same accent as the app's other switches), then its
+    label. Follows `variable`; clicking toggles it and calls `command`."""
     W, H, K = 34, 18, 14
 
     def __init__(self, parent, text, variable, command):
@@ -134,7 +133,7 @@ class ForkSwitch(ctk.CTkFrame):
         self.c = tk.Canvas(self, width=self.W, height=self.H, highlightthickness=0, bd=0, cursor="hand2",
                            bg=bg if isinstance(bg, str) and bg.startswith("#") else CARD)
         self.c.pack(side="left")
-        self.lbl = ctk.CTkLabel(self, text=text, font=font(12), text_color=WARN, cursor="hand2")
+        self.lbl = ctk.CTkLabel(self, text=text, font=font(12), text_color=TEXT2, cursor="hand2")
         self.lbl.pack(side="left", padx=(6, 0))
         for w in (self.c, self.lbl):
             w.bind("<Button-1>", lambda e: self.toggle())
@@ -162,15 +161,12 @@ class ForkSwitch(ctk.CTkFrame):
         c, W, H, K = self.c, self.W, self.H, self.K
         on = bool(self.var.get())
         c.delete("all")
-        track = WARN_TRACK if on else SWITCH_OFF
+        track = ACCENT if on else SWITCH_OFF
         c.create_oval(0, 0, H, H, fill=track, outline="")
         c.create_oval(W - H, 0, W, H, fill=track, outline="")
         c.create_rectangle(H / 2, 0, W - H / 2, H, fill=track, outline="")
         x = W - 2 - K if on else 2
-        c.create_oval(x, 2, x + K, 2 + K, fill=WARN_KNOB, outline="")
-        fork = "#ffffff" if theme.MODE == "light" else "#8a5d00"
-        self._img = theme.photo("fork", fork, 10)
-        c.create_image(x + K / 2, 2 + K / 2, image=self._img)
+        c.create_oval(x, 2, x + K, 2 + K, fill=SWITCH_KNOB, outline="")
 
 
 def ctrl_reset(slider, value, handler):
@@ -207,3 +203,55 @@ class EntryHint:
         e = self.entry
         self.lbl.configure(bg=self.inner.cget("bg"), fg=e._apply_appearance_mode(e._placeholder_text_color))
         self.lbl.place(in_=self.inner, x=1, rely=0.5, anchor="w")
+
+
+class _Hint:
+    """One small tip label at a time, placed on the window (not a separate window)."""
+    current = None
+
+
+def hover_hint(widget, text, delay=600):
+    """Show `text` under `widget` after the mouse rests on it (button name and its shortcut).
+    `text` may be a function, read each time the tip opens."""
+    state = {"job": None}
+
+    def show():
+        state["job"] = None
+        hide()
+        try:
+            root = widget.winfo_toplevel()
+            msg = text() if callable(text) else text
+            if not msg or not widget.winfo_ismapped():
+                return
+            tip = ctk.CTkLabel(root, text=f"  {msg}  ", font=font(11), text_color=TEXT2, fg_color=POPOVER,
+                               corner_radius=6, height=24)
+            root.update_idletasks()
+            x = widget.winfo_rootx() - root.winfo_rootx() + widget.winfo_width() / 2
+            y = widget.winfo_rooty() - root.winfo_rooty() + widget.winfo_height() + 6
+            tip.place(x=x, y=y, anchor="n")
+            tip.lift()
+            _Hint.current = tip
+        except tk.TclError:
+            pass
+
+    def hide(*_):
+        if state["job"] is not None:
+            try:
+                widget.after_cancel(state["job"])
+            except tk.TclError:
+                pass
+            state["job"] = None
+        tip, _Hint.current = _Hint.current, None
+        if tip is not None:
+            try:
+                tip.destroy()
+            except tk.TclError:
+                pass
+
+    def enter(_):
+        if state["job"] is None:
+            state["job"] = widget.after(delay, show)
+
+    widget.bind("<Enter>", enter, add="+")
+    widget.bind("<Leave>", hide, add="+")
+    widget.bind("<ButtonPress>", hide, add="+")

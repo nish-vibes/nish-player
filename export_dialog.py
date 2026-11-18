@@ -89,7 +89,8 @@ class ExportDialog:
         if app.semis:
             items.append((f"Pitch {engine.fmt_semitones(app.semis)} semitones".replace("-", "−"), True))
         if app.auto and app.current_cents():
-            items.append(("Auto 440", "amber"))
+            # a sound change, like speed (accent; amber is for warnings)
+            items.append((f"Auto 440 {app.current_cents():+.0f} ct".replace("-", "−"), True))
         elif not app.auto and round(app.manual_cents):
             items.append((f"Fine {app.manual_cents:+.0f} ct".replace("-", "−"), True))
         autos = [l.track.label for l, g in zip(lanes, gains) if g > 0 and l.track.automation_active()]

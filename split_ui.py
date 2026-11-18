@@ -17,7 +17,7 @@ from widgets import EntryHint
 from theme import *  # noqa: F401,F403  (colours follow the light/dark theme)
 
 STEP_TEXT = {"download": "Download the audio", "split": "Split with AI", "tune": "Tune to A = 440 Hz",
-             "save": "Save in the song folder", "load": "Add to workspace"}
+             "save": "Save in the song folder", "load": "Open in the player"}
 
 
 def fmt_dur(sec):
@@ -107,7 +107,7 @@ class SplitPopover:
         self.title.pack(side="left")
         ctk.CTkButton(head, text="", image=icon("close", MUTED, 13), width=30, height=30,
                       fg_color="transparent", hover_color=BTN_HOVER, command=self.close).pack(side="right")
-        avail = max(360, self.root.winfo_height() - 150)
+        avail = max(320, self.root.winfo_height() - 230)      # room for the header and the footer
         self.body = ctk.CTkScrollableFrame(self.frame, fg_color="transparent", width=self.W - 30,
                                            height=min(700, avail), scrollbar_button_color=BORDER2)
         self.body.pack(fill="both", expand=True, padx=(8, 4), pady=(0, 14))
@@ -144,6 +144,10 @@ class SplitPopover:
     def show(self, which):
         if which == "setup":   # the library may have been changed in the cogwheel menu meanwhile
             self.s["out_root"] = splitter.load_settings()["out_root"]
+        if which == "setup":
+            self.foot.pack(fill="x", side="bottom", padx=20, pady=(0, 16), before=self.body._parent_frame)
+        else:
+            self.foot.pack_forget()
         for name, f in (("setup", self.setup), ("suffixes", self.suf), ("work", self.work)):
             if name == which:
                 f.pack(fill="x", padx=12)
@@ -251,45 +255,46 @@ class SplitPopover:
         self.exists_open.pack(side="right", padx=(0, 8), pady=6)
         self.name_var.trace_add("write", lambda *a: self.refresh_preview())
 
-        # the library: artist folders are created here (the same setting as Library in the cogwheel menu)
-        self.section(p, "LIBRARY")
-        loc = ctk.CTkFrame(p, fg_color="transparent")
-        loc.pack(fill="x")
-        box = ctk.CTkFrame(loc, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=8, height=36)
-        box.pack(side="left", fill="x", expand=True)
-        box.pack_propagate(False)
-        self.loc_lbl = ctk.CTkLabel(box, text="", image=icon("folder", MUTED, 14), compound="left",
-                                    font=font(12, mono=True), text_color=SOFT, anchor="w")
-        self.loc_lbl.pack(fill="both", expand=True, padx=10)
-        ToolButton(loc, "Change…", self.change_folder, height=36, width=96,
-                   font=font(13)).pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(p, text="Songs are saved here, each in its artist's folder.", font=font(12),
-                     text_color=DIM, anchor="w", height=18).pack(fill="x", pady=(4, 0))
-
         # what to make: Original, Karaoke, 4 or 6 stems; each with its own Auto 440 (see split_choices)
-        self.make_title = self.section(p, "DOWNLOAD")
+        self.make_title = self.section(p, "WHAT TO MAKE")
         import split_choices
         self.choices = split_choices.ChoiceRow(p, on_toggle=self.toggle, on_tune=self.toggle_tune,
                                                on_cog=lambda: self.show("suffixes"), bg=WAVE)
         self.choices.pack(fill="x")
 
+        # where it goes (the library: the same setting as Library in the cogwheel menu) and, folded
+        # away until asked for, the exact files
         prev = ctk.CTkFrame(p, fg_color=FIELD, border_color=BORDER, border_width=1, corner_radius=10)
         prev.pack(fill="x", pady=(12, 0))
+        where = ctk.CTkFrame(prev, fg_color="transparent")
+        where.pack(fill="x", padx=(10, 6), pady=6)
+        self.loc_lbl = ctk.CTkLabel(where, text="", image=icon("folder", MUTED, 14), compound="left",
+                                    font=font(12, mono=True), text_color=SOFT, anchor="w")
+        self.loc_lbl.pack(side="left", fill="x", expand=True)
+        self.files_btn = ctk.CTkButton(where, text="", width=0, height=26, corner_radius=6, font=font(12),
+                                       fg_color="transparent", hover_color=BTN_HOVER, text_color=ACCENT_SOFT,
+                                       command=self.toggle_files)
+        self.files_btn.pack(side="right")
+        ctk.CTkButton(where, text="Change…", width=0, height=26, corner_radius=6, font=font(12),
+                      fg_color="transparent", hover_color=BTN_HOVER, text_color=ACCENT_SOFT,
+                      command=self.change_folder).pack(side="right", padx=(0, 2))
+        self.files_line = ctk.CTkFrame(prev, fg_color=BORDER, height=1, corner_radius=0)
         self.preview = ctk.CTkLabel(prev, text="", font=font(11, mono=True), text_color=SOFT, justify="left",
                                     anchor="w")
-        self.preview.pack(fill="x", padx=12, pady=8)
 
-        ctk.CTkFrame(p, fg_color=SEPARATOR, height=1, corner_radius=0).pack(fill="x", pady=(14, 12))
-        foot = ctk.CTkFrame(p, fg_color="transparent")
-        foot.pack(fill="x", pady=(0, 4))
+        # the footer stays in sight below the scrolling part (see show())
+        foot = self.foot = ctk.CTkFrame(self.frame, fg_color="transparent")
+        ctk.CTkFrame(foot, fg_color=SEPARATOR, height=1, corner_radius=0).pack(fill="x", pady=(0, 12))
+        row = ctk.CTkFrame(foot, fg_color="transparent")
+        row.pack(fill="x")
         self.ws_var = tk.BooleanVar(value=self.s["workspace"])
-        ctk.CTkSwitch(foot, text="Add to workspace", variable=self.ws_var, font=font(13), text_color=TEXT2,
+        ctk.CTkSwitch(row, text="Open in player when done", variable=self.ws_var, font=font(13), text_color=TEXT2,
                       progress_color=ACCENT, button_color=SWITCH_KNOB, button_hover_color=SWITCH_KNOB,
                       fg_color=SWITCH_OFF, switch_width=36, switch_height=20,
                       command=self.save).pack(side="left")
-        self.go = ToolButton(foot, "DOWNLOAD", self.start, primary=True, height=40, width=120)
+        self.go = ToolButton(row, "Split song", self.start, primary=True, height=40, width=120)
         self.go.pack(side="right")
-        ToolButton(foot, "Cancel", self.close, height=40, width=84).pack(side="right", padx=8)
+        ToolButton(row, "Cancel", self.close, height=40, width=84).pack(side="right", padx=8)
 
     def source(self):
         return "file" if self.s.get("source") == "file" else "youtube"
@@ -352,10 +357,9 @@ class SplitPopover:
         self.choices.set_state(is_file, out, tune)
         sel = [k for k in ("original", "karaoke", "stems", "stems6") if out[k]]
         sel += ["tuned"] if tune["original"] else []
-        self.make_title.configure(text="MAKE" if is_file else "DOWNLOAD")
-        self.go.configure(text="SPLIT" if is_file else "DOWNLOAD", state="normal" if sel else "disabled",
-                          fg_color=ACCENT if sel else CONTROL)
-        self.loc_lbl.configure(text="  " + self._short(splitter.location(self.s), 40))
+        splits = bool(splitter.model_for(self.s, is_file))
+        verb = "Split song" if splits else ("Make files" if is_file else "Download")
+        self.go.configure(text=verb, state="normal" if sel else "disabled", fg_color=ACCENT if sel else CONTROL)
         self.refresh_preview()
 
     def opts(self):
@@ -413,6 +417,15 @@ class SplitPopover:
         items = [("project", splitter.project_rel(name, artist), "")] + splitter.plan(name, self.opts(), ext,
                                                                                     local=is_file, artist=artist)
         notes = {"project": "project", "original": "original", "tuned": "tuned copy", "karaoke": "karaoke · MP3 320"}
+        n_files = len(items)
+        self.loc_lbl.configure(text="  " + self._short(f"{splitter.location(self.s)}\\{artist}\\{name}\\", 44))
+        self.files_btn.configure(text=("Hide files" if self.s.get("show_files") else f"Show {n_files} files"))
+        if self.s.get("show_files"):
+            self.files_line.pack(fill="x")
+            self.preview.pack(fill="x", padx=12, pady=8)
+        else:
+            self.files_line.pack_forget()
+            self.preview.pack_forget()
         if len(items) == 1:
             self.preview.configure(text="Choose what to make.")
             return
@@ -436,16 +449,29 @@ class SplitPopover:
         return path if len(path) <= n else "…" + path[-(n - 1):]
 
     def toggle(self, key):
+        """original/karaoke: tick or untick. stems_box: Stems on (with the last 4 or 6) or off.
+        stems/stems6: pick 4 or 6 stems (this also ticks Stems)."""
         if key == "original" and self.source() != "file":
             return                                  # YouTube always keeps the original
         out = self.s["out"]
-        out[key] = not out[key]
-        if key == "stems" and out[key]:
-            out["stems6"] = False
-        if key == "stems6" and out[key]:
-            out["stems"] = False
+        if key == "stems_box":
+            if out["stems"] or out["stems6"]:
+                self.s["stems_last"] = "stems6" if out["stems6"] else "stems"
+                out["stems"] = out["stems6"] = False
+            else:
+                out[self.s.get("stems_last", "stems6")] = True
+        elif key in ("stems", "stems6"):
+            out["stems"], out["stems6"] = key == "stems", key == "stems6"
+            self.s["stems_last"] = key
+        else:
+            out[key] = not out[key]
         self.save()
         self.refresh_setup()
+
+    def toggle_files(self):
+        self.s["show_files"] = not self.s.get("show_files")
+        self.save()
+        self.refresh_preview()
 
     def toggle_tune(self, key):
         k = "stems" if key == "stems6" else key

@@ -188,6 +188,8 @@ STEM_NAMES = {
 def guess_label(path):
     stem = Path(path).stem
     tokens = [t for t in re.split(r"[_\-\s.]+", stem) if t]
+    if len(tokens) > 2 and re.fullmatch(r"(?i)auto ?440|440 ?hz", tokens[-1]):   # "Song Vocals Auto440"
+        tokens = tokens[:-1]
     if len(tokens) > 1 and tokens[-1].upper() in STEM_NAMES:  # "Song_VOX" style suffix
         return STEM_NAMES[tokens[-1].upper()]
     return stem

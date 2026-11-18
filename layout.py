@@ -9,7 +9,7 @@ import settings
 import theme
 from theme import *  # noqa: F401,F403
 from lane import Lane
-from widgets import ForkSwitch, MasterFader, ctrl_reset  # noqa: F401
+from widgets import ForkSwitch, MasterFader, ctrl_reset, hover_hint  # noqa: F401
 
 
 class LayoutMixin:
@@ -115,7 +115,7 @@ class LayoutMixin:
         self.save_btn = ToolButton(right, "Save project", lambda: self.save_project(), width=76)
         self.save_btn.pack(side="left", padx=4)
         self.split_btn = ToolButton(right, "Split", self.open_split, image=icon("split", ACCENT_SOFT, 18),
-                                 compound="left", width=168)
+                                 compound="left", width=76)
         self.split_btn.pack(side="left", padx=4)
         self.export_btn = ToolButton(right, "Export…", self.open_export, primary=True,
                                      image=icon("export", ACCENT_TXT, 15), compound="left")
@@ -135,7 +135,16 @@ class LayoutMixin:
         self._drop_hot = False
 
     def _draw_drop(self):
+        """The drop zone shows while there are no tracks, while files are dragged over the window
+        and while files load; otherwise the tracks get its space (Open project adds files too)."""
         c = self.drop
+        show = not getattr(self, "lanes", None) or self._drop_hot or self.loading
+        if not show:
+            if c.winfo_manager():
+                c.grid_remove()
+            return
+        if not c.winfo_manager():
+            c.grid()
         c.delete("all")
         w, h = c.winfo_width(), c.winfo_height()
         hot = self._drop_hot
@@ -190,6 +199,9 @@ class LayoutMixin:
                                                 scrollbar_button_color=BORDER2,
                                                 scrollbar_button_hover_color=CONTROL2)
         self.lanes_box.grid(row=1, column=0, sticky="nsew", padx=2, pady=(0, 2))
+        # the scrollbar only shows when the tracks don't fit
+        self.lanes_box._parent_canvas.bind("<Configure>", lambda e: self._fit_scrollbar(), add="+")
+        self.lanes_box.bind("<Configure>", lambda e: self._fit_scrollbar(), add="+")
         self.lanes_box.grid_columnconfigure(0, weight=1)
         self.empty = ctk.CTkLabel(self.lanes_box, font=font(14), text_color=MUTED, justify="center",
                                   text="No tracks yet.\nDrop a song, a karaoke file or a set of stems "
@@ -212,21 +224,24 @@ class LayoutMixin:
         self.time_lbl = ctk.CTkLabel(tr, text="0:00 / 0:00", font=font(15, mono=True), text_color=TEXT2,
                                      width=150, anchor="e")
         self.time_lbl.grid(row=0, column=0, padx=(0, 18))
-        ctk.CTkButton(tr, text="", image=icon("back", TEXT2, 16), width=44, height=44, corner_radius=22,
-                      fg_color=BTN, hover_color=BTN_HOVER, border_color=BORDER2, border_width=1,
-                      text_color=TEXT2, command=lambda: self.seek(0)).grid(row=0, column=1, padx=9)
-        # Play and Loop sit in a ring that lights up (accent) while they are active
+        back = RoundButton(tr, text="", image=icon("back", TEXT2, 16), width=44, height=44, corner_radius=22,
+                           fg_color=BTN, hover_color=BTN_HOVER, border_color=BORDER2, border_width=1,
+                           text_color=TEXT2, command=lambda: self.seek(0))
+        back.grid(row=0, column=1, padx=9)
+        hover_hint(back, "Back to the start  ·  Home")
+        # Play sits in a ring that lights up while playing (round buttons: see theme.RoundButton)
         self.play_ring = self._ring(tr, 72)
         self.play_ring.grid(row=0, column=2, padx=4)
-        self.play_btn = ctk.CTkButton(self.play_ring, text="", image=icon("play", ACCENT_TXT, 28), width=72,
-                                      height=72, corner_radius=36, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                                      text_color=ACCENT_TXT, command=self.toggle_play)
+        self.play_btn = RoundButton(self.play_ring, text="", image=icon("play", ACCENT_TXT, 28), width=72,
+                                    height=72, corner_radius=36, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                    text_color=ACCENT_TXT, command=self.toggle_play)
         self.play_btn.place(relx=0.5, rely=0.5, anchor="center")
-        self.loop_ring = self._ring(tr, 44)
-        self.loop_ring.grid(row=0, column=3, padx=4)
-        self.loop_btn = ctk.CTkButton(self.loop_ring, text="", width=44, height=44, corner_radius=22,
-                                      border_width=1, command=self.toggle_loop)
-        self.loop_btn.place(relx=0.5, rely=0.5, anchor="center")
+        hover_hint(self.play_btn, "Play / Pause  ·  Space")
+        # Loop: on = accent tint with an accent icon (no ring, so it never competes with Play)
+        self.loop_btn = RoundButton(tr, text="", width=44, height=44, corner_radius=22,
+                                    border_width=1, command=self.toggle_loop)
+        self.loop_btn.grid(row=0, column=3, padx=9)
+        hover_hint(self.loop_btn, "Loop the marked area  ·  L")
         fade = self.fade_box = ctk.CTkFrame(tr, fg_color="transparent", width=170, height=44)
         fade.grid(row=0, column=4, padx=(18, 0))
         fade.grid_propagate(False)
@@ -265,7 +280,7 @@ class LayoutMixin:
         self.fine_val = ctk.CTkLabel(top, text="0 ct", font=font(13, "bold", True), anchor="w")
         self.fine_val.pack(side="left", padx=(10, 0))
 
-        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=WARN, fg_color=AMBER_BADGE,
+        ctk.CTkLabel(top, text=" BETA ", font=font(9, "bold"), text_color=MUTED, fg_color=CHIP,
                      corner_radius=4, height=18).pack(side="right")
         self.auto_var = tk.BooleanVar(value=False)
         self.auto_chk = ForkSwitch(top, "Auto 440", self.auto_var, self.on_auto)
@@ -289,10 +304,12 @@ class LayoutMixin:
         self._style_fine()
 
         bottom = ctk.CTkFrame(cards, fg_color="transparent")
-        bottom.grid(row=1, column=0, columnspan=3, pady=(12, 0))
-        ctk.CTkButton(bottom, text="Reset", height=32, corner_radius=6, font=font(13),
-                      fg_color="transparent", hover_color=BTN_HOVER, border_color=BORDER2,
-                      border_width=1, text_color=BTN_TXT, command=self.reset_stretch).pack(side="left")
+        bottom.grid(row=1, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        self.reset_btn = ctk.CTkButton(bottom, text="Reset speed & pitch", width=0, height=32, corner_radius=6,
+                                       font=font(13), fg_color="transparent", hover_color=BTN_HOVER,
+                                       border_color=BORDER2, border_width=1, text_color=BTN_TXT,
+                                       command=self.reset_stretch)
+        self.reset_btn.pack(side="left")
         self.busy_lbl = ctk.CTkLabel(bottom, text="", font=font(12), text_color=ACCENT_SOFT, compound="left")
         self.busy_lbl.pack(side="left", padx=14)
 
@@ -326,6 +343,21 @@ class LayoutMixin:
         return sc
 
 
+    def _fit_scrollbar(self):
+        box = getattr(self, "lanes_box", None)
+        if box is None:
+            return
+        try:
+            bar, canvas = box._scrollbar, box._parent_canvas
+            need = box.winfo_reqheight() > canvas.winfo_height() + 1
+            if need and not bar.winfo_ismapped():
+                bar.grid()
+            elif not need and bar.winfo_ismapped():
+                bar.grid_remove()
+                canvas.yview_moveto(0)
+        except (AttributeError, tk.TclError):
+            pass
+
     # ----- styling helpers -----
     @staticmethod
     def _ring(parent, size):
@@ -349,20 +381,17 @@ class LayoutMixin:
             self.fade_inner.place(relx=0, rely=0.5, anchor="w")
         else:
             self.fade_inner.place_forget()
-        # on: filled accent with a lit ring, so it reads at a glance; off: an outlined button
-        self.loop_btn.configure(fg_color=ACCENT if on else BTN, border_color=ACCENT if on else BORDER2,
-                                image=icon("loop", ACCENT_TXT if on else MUTED, 18),
-                                hover_color=ACCENT_HOVER if on else BTN_HOVER)
-        self.loop_ring.configure(border_color=ACCENT if on else DECK)
+        # on: accent tint, accent border and icon; off: an outlined button
+        self.loop_btn.configure(fg_color=ACCENT_TINT if on else BTN, border_color=ACCENT if on else BORDER2,
+                                image=icon("loop", ACCENT if on else MUTED, 18),
+                                hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER)
 
     def _style_fine(self):
+        """Auto 440 on: the slider shows the measured value and can't be moved (dimmed accent); the
+        card itself stays like Speed and Pitch."""
         auto = self.auto
-        self.fine_card.configure(fg_color=GREEN_BG if auto else CARD,
-                                 border_color=GREEN_BORDER if auto else BORDER)
-        col = WARN if auto else ACCENT
+        col = blend(ACCENT, CARD, 0.45) if auto else ACCENT
         self.fine_slider.configure(progress_color=col, button_color=col, button_hover_color=col,
-                                   fg_color=AMBER_BORDER if auto else ACCENT_TRACK,
-                                   state="disabled" if auto else "normal")
-        self.auto_chk.set_bg(GREEN_BG if auto else CARD)
+                                   fg_color=ACCENT_TRACK, state="disabled" if auto else "normal")
         text = "…" if (auto and self.analysing) else cents_text(self.current_cents())
-        self.fine_val.configure(text=text, text_color=GREEN if auto else ACCENT_SOFT)
+        self.fine_val.configure(text=text, text_color=ACCENT_SOFT)

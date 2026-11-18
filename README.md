@@ -56,7 +56,7 @@ click **More info → Run anyway**.
       My Song Auto440.flac
       My Song KARAOKE Auto440.mp3
       Separated Stems - My Song\
-        My Song VOX Auto440.flac   (DRM, BASS, GTR, KEYS, MISC)
+        My Song Vocals Auto440.flac   (Drums, Bass, Guitar, Piano, Other)
   ```
 
   An artist's songs share one artist folder. If the song folder exists already, a notice under
@@ -67,7 +67,7 @@ click **More info → Run anyway**.
   artist, else the channel) or the file's tags, else **Unknown Artist**; the song from the video
   title or file name. The
   cogwheel sets the file format (FLAC by default; WAV, MP3 320 or Opus), the name tags and the
-  stems folder name. **Add to workspace** loads the result straight into the player: the stems
+  stems folder name. **Open in player when done** loads the result straight into the player: the stems
   if you made stems, otherwise the karaoke file, otherwise the (tuned) original. The AI models
   (Demucs) come with the app, so splitting works on the first try, even offline.
 
@@ -111,7 +111,9 @@ click **More info → Run anyway**.
   one day, the cogwheel turns amber and suggests checking for an update.
 
 Keyboard: **Space** play/pause, **Home** back to the start, **Ctrl+S** save the project,
-**S** / **M** solo / mute the selected track (**Ctrl+click** on S: solo only that track).
+**S** / **M** solo / mute the selected track (**Ctrl+click** on S: solo only that track), **L** loop on/off,
+**Ctrl+Z** brings back a track you just removed (also **Undo** in the notice that appears). Buttons show
+their shortcut when you rest the mouse on them; a track's **A** and **×** show while the mouse is over it.
 
 ## Building it yourself
 
