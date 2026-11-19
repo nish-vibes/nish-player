@@ -229,8 +229,12 @@ jobs:
           if (Test-Path "$out\yt_selftest.txt") { $report = Get-Content "$out\yt_selftest.txt" -Raw }
           Write-Output $report
           $msg = $report -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'
-          if ($p.ExitCode -ne 0) { Write-Output "::warning title=youtube-test::$msg"; throw "YouTube test failed" }
-          Write-Output "::notice title=youtube-test::$msg"
+          if ($p.ExitCode -ne 0) {
+            Write-Output "::warning title=youtube-test::YouTube blocked or changed - check the YouTube fix. $msg"
+            "### ⚠️ YouTube test returned a warning`nThe build itself is fine. YouTube may be blocking the build server, or it changed something the app needs. See the log of this step.`n" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          } else {
+            Write-Output "::notice title=youtube-test::$msg"
+          }
 
       - uses: actions/upload-artifact@v4
         if: always()
