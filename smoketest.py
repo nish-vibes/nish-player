@@ -640,7 +640,10 @@ def run(app, out_dir):
                 break
             yield 0.1
         yield 0.3
-        assert m.state == "newer" and "9.9.9 is available (268 MB)" in m.msg.cget("text"), m.msg.cget("text")
+        # "is also available" when GitHub really has a newer YouTube fix for the users' app right now
+        txt = m.msg.cget("text")
+        assert m.state == "newer" and ("9.9.9 is available (268 MB)" in txt
+                                       or "9.9.9 is also available (268 MB)" in txt), txt
         assert m.btn.cget("text") in ("Download", "Open download page"), m.btn.cget("text")
         shot("6-update")
         section("after the download: a 'ready' message and a separate Close and update button")
