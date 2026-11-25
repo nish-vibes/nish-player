@@ -70,11 +70,18 @@ class SettingsMenu:
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=(12, 0))
         ctk.CTkLabel(row, text="Theme", font=font(13), text_color=TEXT, anchor="w").pack(side="left")
-        dark = theme.MODE == "dark"
-        self.theme_btn = ToolButton(row, "Dark" if dark else "Light", self.toggle_theme, height=30, width=92,
-                                    image=icon("moon" if dark else "sun", ACCENT_SOFT, 15), compound="left",
-                                    font=font(12))
-        self.theme_btn.pack(side="right")
+        # Dark, Light or Lux (the JAMM Lux look): one click each
+        self.theme_seg = ctk.CTkSegmentedButton(
+            row, values=list(self.THEMES), command=self.pick_theme, height=30, font=font(12),
+            corner_radius=15 if theme.MODE == "lux" else 8, fg_color=BTN, selected_color=ACCENT,
+            selected_hover_color=ACCENT_HOVER, unselected_color=BTN, unselected_hover_color=BTN_HOVER,
+            text_color=TEXT2, text_color_disabled=MUTED)
+        self.theme_seg.set(self.THEME_NAME[theme.MODE])
+        self.theme_seg.pack(side="right")
+        try:   # the selected segment's text: on the accent colour (peach in Lux, so ink)
+            self.theme_seg._buttons_dict[self.THEME_NAME[theme.MODE]].configure(text_color=ACCENT_TXT)
+        except Exception:
+            pass
         # Library: Split saves songs here as Artist\Song\ (the same setting as Library in the Split dialog)
         lib = ctk.CTkFrame(f, fg_color="transparent")
         lib.pack(fill="x", padx=18, pady=(10, 0))
@@ -129,8 +136,11 @@ class SettingsMenu:
         autoupdate.set_enabled(self.auto_var.get())
         self.refresh()
 
-    def toggle_theme(self):
-        self.app.apply_theme("light" if theme.MODE == "dark" else "dark")
+    THEMES = {"Dark": "dark", "Light": "light", "Lux": "lux"}
+    THEME_NAME = {v: k for k, v in THEMES.items()}
+
+    def pick_theme(self, name):
+        self.app.apply_theme(self.THEMES.get(name, "dark"))
 
     # ----- popover -----
     def place(self):
@@ -278,8 +288,8 @@ class SettingsMenu:
     def _button(self, b, text, primary):
         if not text:
             return
-        b.configure(text=text, fg_color=ACCENT if primary else BTN, hover_color=ACCENT_HOVER if primary else BTN_HOVER,
-                    text_color=ACCENT_TXT if primary else TEXT2, border_width=0 if primary else 1,
+        b.configure(text=text, fg_color=ACTION if primary else BTN, hover_color=ACTION_HOVER if primary else BTN_HOVER,
+                    text_color=ACTION_TXT if primary else TEXT2, border_width=0 if primary else 1,
                     font=font(13, "bold") if primary else font(13))
         b.pack(fill="x", pady=(0, 10) if b is self.yt_btn else 0)
 

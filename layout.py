@@ -28,9 +28,9 @@ class LayoutMixin:
         self._build_master(main)
 
     def apply_theme(self, mode):
-        """Switch light/dark: the window is rebuilt in the new colours; tracks, settings and
+        """Switch dark/light/Lux: the window is rebuilt in the new colours; tracks, settings and
         playback carry on untouched. Remembered for next time."""
-        mode = "light" if mode == "light" else "dark"
+        mode = mode if mode in theme.MODES else "dark"
         settings.put("theme", mode)
         if mode == theme.MODE:
             return
@@ -232,9 +232,9 @@ class LayoutMixin:
         # Play sits in a ring that lights up while playing (round buttons: see theme.RoundButton)
         self.play_ring = self._ring(tr, 72)
         self.play_ring.grid(row=0, column=2, padx=4)
-        self.play_btn = RoundButton(self.play_ring, text="", image=icon("play", ACCENT_TXT, 28), width=72,
-                                    height=72, corner_radius=36, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                                    text_color=ACCENT_TXT, command=self.toggle_play)
+        self.play_btn = RoundButton(self.play_ring, text="", image=icon("play", ACTION_TXT, 28), width=72,
+                                    height=72, corner_radius=36, fg_color=ACTION, hover_color=ACTION_HOVER,
+                                    text_color=ACTION_TXT, command=self.toggle_play)
         self.play_btn.place(relx=0.5, rely=0.5, anchor="center")
         hover_hint(self.play_btn, "Play / Pause  ·  Space")
         # Loop: on = accent tint with an accent icon (no ring, so it never competes with Play)
@@ -370,10 +370,10 @@ class LayoutMixin:
 
     def _style_play(self, playing):
         """Playing: the pause icon, the stronger accent and a lit ring."""
-        self.play_btn.configure(image=icon("pause" if playing else "play", ACCENT_TXT, 28),
-                                fg_color=ACCENT_STRONG if playing else ACCENT,
-                                hover_color=ACCENT_STRONG if playing else ACCENT_HOVER)
-        self.play_ring.configure(border_color=ACCENT if playing else DECK)
+        self.play_btn.configure(image=icon("pause" if playing else "play", ACTION_TXT, 28),
+                                fg_color=ACTION_STRONG if playing else ACTION,
+                                hover_color=ACTION_STRONG if playing else ACTION_HOVER)
+        self.play_ring.configure(border_color=ACTION if playing else DECK)
 
     def _style_loop(self):
         on = self.player.loop

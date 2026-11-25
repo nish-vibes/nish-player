@@ -41,6 +41,21 @@ def main():
         assert theme.BG == theme.PALETTE["BG"][i] and theme.TRACK_COLORS[0][0] == theme.TRACK_PAIRS[0][0][i]
     ok("set_mode switches every colour")
 
+    # Lux (JAMM Lux): only overrides names the palette has, valid hexes, dark appearance underneath
+    hexok = lambda c: isinstance(c, str) and len(c) == 7 and c[0] == "#" and int(c[1:], 16) >= 0  # noqa: E731
+    assert set(theme.LUX) <= set(theme.PALETTE), set(theme.LUX) - set(theme.PALETTE)
+    assert set(theme.LUX_GROUPS) == set(theme.GROUPS)
+    assert all(hexok(c) for c in theme.LUX.values())
+    assert all(hexok(c) for cols in theme.LUX_GROUPS.values() for c in cols)
+    assert len(theme.LUX_TRACKS) == len(theme.TRACK_PAIRS) and all(hexok(c) for p in theme.LUX_TRACKS for c in p)
+    theme.set_mode("lux")
+    assert theme.MODE == "lux" and theme.BG == "#0d0d0d" and theme.ACTION == "#fe8b48" and theme.ACCENT == "#ffd2b4"
+    assert theme.TEXT2 == theme.PALETTE["TEXT2"][0] or theme.TEXT2 == theme.LUX["TEXT2"]
+    assert theme.GREEN == theme.PALETTE["GREEN"][0]          # not overridden: the dark value
+    theme.set_mode("nonsense")
+    assert theme.MODE == "dark" and theme.ACTION == theme.PALETTE["ACCENT"][0]
+    ok("Lux: JAMM Lux colours over the dark palette; Play and Export in orange, selected in peach")
+
     # every UPPER_CASE name a module takes from "from theme import *" exists in theme
     # (catches typos and colours removed from the canvas before the app runs into them)
     known = set(dir(theme)) | set(dir(__builtins__))

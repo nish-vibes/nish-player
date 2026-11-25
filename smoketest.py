@@ -831,8 +831,8 @@ def run(app, out_dir):
         speed = app.speed
         app.open_settings()
         yield 0.3
-        assert app.settings_pop.theme_btn.cget("text") == "Dark"
-        app.settings_pop.theme_btn.invoke()
+        assert app.settings_pop.theme_seg.get() == "Dark"
+        app.settings_pop.theme_seg._buttons_dict["Light"].invoke()
         yield 0.8
         assert theme.MODE == "light" and settings.get("theme") == "light"
         assert app.root.cget("fg_color") in (theme.PALETTE["BG"][1], ("gray92", "gray14")) or \
@@ -841,7 +841,7 @@ def run(app, out_dir):
         assert app.speed == speed and app.lanes[0].canvas.cget("bg") in (theme.PALETTE["PANEL"][1],
                                                                           theme.PALETTE["SELECTED_WAVE"][1])
         assert app.settings_pop is not None and app.settings_pop.is_open()
-        assert app.settings_pop.theme_btn.cget("text") == "Light"
+        assert app.settings_pop.theme_seg.get() == "Light"
         app.settings_pop.close()
         yield 0.3
         shot("8-light")
@@ -853,10 +853,31 @@ def run(app, out_dir):
         yield 0.6
         shot("8c-light-youtube")
         app.split_pop.close()
+        # Lux: the JAMM Lux look (ink ground, peach selected, orange Play)
+        app.open_settings()
+        yield 0.3
+        app.settings_pop.theme_seg._buttons_dict["Lux"].invoke()
+        yield 0.8
+        assert theme.MODE == "lux" and settings.get("theme") == "lux" and len(app.lanes) == n_lanes
+        assert theme.ACTION == theme.LUX["ACTION"] and app.play_btn.cget("fg_color") == theme.LUX["ACTION"]
+        assert app.root.cget("fg_color") == theme.LUX["BG"] or theme.LUX["BG"] in str(app.root.cget("fg_color"))
+        assert app.settings_pop is not None and app.settings_pop.theme_seg.get() == "Lux"
+        app.settings_pop.close()
+        yield 0.3
+        shot("8d-lux")
+        app.open_export()
+        yield 0.6
+        shot("8e-lux-export")
+        app.export_dialog.close()
+        app.open_split()
+        yield 0.6
+        shot("8f-lux-youtube")
+        app.split_pop.close()
         app.apply_theme("dark")
         yield 0.6
         assert theme.MODE == "dark" and settings.get("theme") == "dark" and len(app.lanes) == n_lanes
-        log("ok: theme switch in the cog menu: dark (default) -> light -> dark, remembered, tracks kept")
+        assert app.play_btn.cget("fg_color") == theme.PALETTE["ACCENT"][0]
+        log("ok: theme switch in the cog menu: dark (default) -> light -> Lux -> dark, remembered, tracks kept")
 
         section("loop area: drag on the timeline, loop button, export only the area, double-click clears")
         rc = app.ruler

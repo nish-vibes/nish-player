@@ -92,6 +92,11 @@ APP_COLORS = {   # colours the canvas doesn't define: hover and pressed states, 
     "FADER_CAP": ("#e6e8eb", "#ffffff"),
     "FADER_CAP_EDGE": ("#9aa0a8", "#8a929e"),
     "FADER_CAP_MARK": ("#0f1114", "#14171c"),
+    # the one action that matters (Play, Export, Split song): the accent in Dark and Light, JAMM orange in Lux
+    "ACTION": ("#7c9cff", "#3d5fd9"),
+    "ACTION_HOVER": ("#94afff", "#2f4fc7"),
+    "ACTION_STRONG": ("#c8d4ff", "#2741a8"),
+    "ACTION_TXT": ("#0f1114", "#ffffff"),
 }
 PALETTE = {**CANVAS_COLORS, **APP_COLORS}
 GROUPS = {   # colours that come in sets
@@ -102,21 +107,59 @@ TRACK_PAIRS = CANVAS_TRACKS + [   # more lanes than the canvas shows: (strong, s
     (("#a6d46a", "#5d8f1f"), ("#3b4a2a", "#d9ebc1")),
     (("#e08a7b", "#c65a47"), ("#553530", "#f5cfc8")),
 ]
+# Lux: the JAMM Lux design system (ink ground, warm white text, peach = selected, orange = act).
+# Built on the dark palette; only these colours differ. Test version, not on the design canvas's
+# colour system yet.
+LUX = {
+    "BG": "#0d0d0d", "HEADER": "#0d0d0d", "PANEL": "#141414", "CARD": "#1a1a1a", "LANE_BG": "#1a1a1a",
+    "WAVE": "#141414", "DECK": "#1a1a1a", "POPOVER": "#1a1a1a", "FIELD": "#0d0d0d", "BTN": "#262626",
+    "SEPARATOR": "#2b2a29", "SELECTED": "#2a221d", "CHIP": "#262626", "BORDER": "#262626",
+    "BORDER2": "#353433", "BORDER_POP": "#3a3938", "CONTROL": "#6c6b6a",
+    "TEXT": "#faf8f6", "TEXT2": "#d9d7d5", "SOFT": "#c6c4c3", "MUTED": "#b3b2b0", "DIM": "#9e9c9b",
+    "ACCENT": "#ffd2b4", "ACCENT_TXT": "#0d0d0d", "ACCENT_SOFT": "#ffd2b4", "ACCENT_TINT": "#2a221d",
+    "ACCENT_BAND": "#3d3029", "ACCENT_TRACK": "#3a2f28", "ACCENT_STRONG": "#ffe6d4",
+    "WARN": "#8fb0ff", "WARN_KNOB": "#faf8f6", "WARN_TRACK": "#8fb0ff", "LAMP": "#fe8b48",
+    "RED": "#ff7a7a", "RED_TXT": "#ff9a9a", "RED_BG": "#3a1f1f", "RED_BORDER": "#6b3030",
+    "BTN_HOVER": "#333231", "THUMB": "#2e2e2d", "SELECTED_WAVE": "#1f1a17", "DROP_HOT": "#2a221d",
+    "RANGE_IDLE": "#262626", "CONTROL2": "#4a4948", "SWITCH_OFF": "#3a3938", "SWITCH_KNOB": "#faf8f6",
+    "GRIP": "#6c6b6a", "BTN_TXT": "#c6c4c3", "ACCENT_HOVER": "#ffe0ca", "ACCENT_TINT_HOVER": "#33291f",
+    "ACCENT_SEL": "#4a3a30", "ACCENT_SEL_HOVER": "#574438", "CHIP_ACCENT": "#2a221d",
+    "CHIP_ACCENT_TXT": "#ffd2b4", "BAND_ON": "#3d3029", "BAND_OFF": "#2b2a29", "PLAYHEAD": "#fe8b48",
+    "SLOT": "#0d0d0d", "FADER_CAP": "#faf8f6", "FADER_CAP_EDGE": "#9e9c9b", "FADER_CAP_MARK": "#0d0d0d",
+    "ACTION": "#fe8b48", "ACTION_HOVER": "#ff9c60", "ACTION_STRONG": "#e8763a", "ACTION_TXT": "#0d0d0d",
+}
+LUX_GROUPS = {   # (fill, border, text)
+    "MUTE_ON": ("#0d0d0d", "#faf8f6", "#faf8f6"),
+    "SOLO_ON": ("#ffd2b4", "#ffd2b4", "#0d0d0d"),
+}
+LUX_TRACKS = [   # (strong, soft): quiet, warm hues
+    ("#ffd2b4", "#4a3a30"), ("#8fb0ff", "#2e3650"), ("#ff9a8a", "#4d2e2a"), ("#e6c79c", "#463b2c"),
+    ("#b8c7a0", "#383e30"), ("#cfc8c0", "#3d3a37"), ("#c9b6e4", "#3b3445"), ("#f0b58a", "#4a3526"),
+]
+MODES = ("dark", "light", "lux")
 MODE = "dark"
 
 
 def _values(mode):
-    i = 0 if mode == "dark" else 1
+    i = 1 if mode == "light" else 0
     v = {k: pair[i] for k, pair in PALETTE.items()}
     v.update({k: tuple(c[i] for c in cols) for k, cols in GROUPS.items()})
     v["TRACK_COLORS"] = [(s[i], d[i]) for s, d in TRACK_PAIRS]
+    if mode == "lux":
+        v.update(LUX)
+        v.update(LUX_GROUPS)
+        v["TRACK_COLORS"] = list(LUX_TRACKS)
     return v
 
 
+def is_light():
+    return MODE == "light"
+
+
 def set_mode(mode):
-    """Switch every colour to the dark or light palette (also in modules that copied the names)."""
+    """Switch every colour to the dark, light or Lux palette (also in modules that copied the names)."""
     global MODE
-    MODE = "light" if mode == "light" else "dark"
+    MODE = mode if mode in MODES else "dark"
     vals = _values(MODE)
     g = globals()
     g.update(vals)
@@ -127,7 +170,7 @@ def set_mode(mode):
                 if hasattr(mod, k):
                     setattr(mod, k, v)
     try:
-        ctk.set_appearance_mode(MODE)
+        ctk.set_appearance_mode("light" if MODE == "light" else "dark")
     except Exception:
         pass
 
@@ -138,7 +181,27 @@ UI = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
 MONO = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
 
 
+_LUX_FAMILY = {}
+
+
+def _lux_family(display):
+    """Lux type: Manrope/Urbanist when installed, else Windows' Segoe UI Variable (Windows 11), else Segoe UI."""
+    key = "display" if display else "text"
+    if key not in _LUX_FAMILY:
+        try:
+            import tkinter.font as tkfont
+            have = set(tkfont.families())
+        except Exception:
+            have = set()
+        wish = (["Urbanist", "Manrope", "Segoe UI Variable Display"] if display
+                else ["Manrope", "Segoe UI Variable Text"])
+        _LUX_FAMILY[key] = next((f for f in wish if f in have), UI)
+    return _LUX_FAMILY[key]
+
+
 def font(size=13, weight="normal", mono=False):
+    if MODE == "lux" and not mono:
+        return ctk.CTkFont(family=_lux_family(size >= 20), size=size, weight=weight)
     return ctk.CTkFont(family=MONO if mono else UI, size=size, weight=weight)
 
 
@@ -309,9 +372,11 @@ def icon(name, color, size=16):
 
 class ToolButton(ctk.CTkButton):
     def __init__(self, master, text, command=None, width=None, height=36, primary=False, **kw):
-        opts = dict(text=text, command=command, height=height, corner_radius=8, font=font(13),
-                    fg_color=ACCENT if primary else BTN, hover_color=ACCENT_HOVER if primary else BTN_HOVER,
-                    text_color=ACCENT_TXT if primary else TEXT2, border_width=0 if primary else 1,
+        lux = MODE == "lux"
+        opts = dict(text=text, command=command, height=height, corner_radius=height // 2 if lux else 8,
+                    font=font(13), fg_color=ACTION if primary else BTN,
+                    hover_color=ACTION_HOVER if primary else BTN_HOVER,
+                    text_color=ACTION_TXT if primary else TEXT2, border_width=0 if primary or lux else 1,
                     border_color=BORDER2)
         if width:
             opts["width"] = width
