@@ -625,6 +625,11 @@ def run(app, out_dir):
         section("settings cog: manual update check (GitHub simulated), YouTube-failure notice")
         assert not hasattr(app, "clear_btn")
         real_check = updater.check
+        # the quick update asks the real GitHub; here it says "nothing new", so a YouTube fix that
+        # happens to be out right now doesn't change the messages under test
+        import apppack as _apppack
+        real_apck = _apppack.check
+        _apppack.check = lambda: {"newer": False, "fits": True, "app_newer": False, "yt_newer": False}
         updater.check = lambda: {"tag": "v9.9.9", "newer": True, "url": "https://example.invalid/x.zip",
                                  "size": 268_000_000, "notes": ""}
         app.cog_btn.invoke()
@@ -669,7 +674,8 @@ def run(app, out_dir):
                 break
             yield 0.1
         yield 0.3
-        assert m.state == "latest" and "latest version" in m.msg.cget("text")
+        assert m.state == "latest" and "latest version" in m.msg.cget("text"), m.msg.cget("text")
+        _apppack.check = real_apck
 
         section("settings cog: no app update for this base -> the YouTube-only fix, also next to a full update")
         import apppack
