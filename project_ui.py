@@ -71,8 +71,7 @@ class RecentMenu:
         r.update_idletasks()
         x = self.anchor.winfo_rootx() - r.winfo_rootx()
         y = self.anchor.winfo_rooty() - r.winfo_rooty() + self.anchor.winfo_height() + 8
-        self.frame.place(x=max(12, min(x, r.winfo_width() - self.W - 12)), y=y)
-        self.frame.lift()
+        self.app.fit_popover(self.frame, x, y)
 
     def is_open(self):
         return bool(self.frame.winfo_exists() and self.frame.winfo_ismapped())
@@ -229,6 +228,7 @@ class ProjectMixin:
         self._set_project(r["path"])
 
     def open_recent(self):
+        self.close_popovers(keep=self.recent_pop)
         if self.recent_pop is not None and self.recent_pop.frame.winfo_exists() and self.recent_pop.is_open():
             self.recent_pop.close()
             return

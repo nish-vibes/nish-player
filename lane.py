@@ -26,11 +26,14 @@ class Lane:
         self.color, self.dim = colors
         h = app.track_h
         self.compact = None
-        self.frame = ctk.CTkFrame(parent, fg_color=WAVE, corner_radius=0, border_width=0)
+        lux = self.lux = theme.MODE == "lux"
+        # Lux: each track is a rounded card (head, waveform and the volume on the right on one colour)
+        self.frame = ctk.CTkFrame(parent, fg_color=LANE_BG if lux else WAVE, corner_radius=20 if lux else 0,
+                                  border_width=0)
         self.frame.grid_columnconfigure(1, weight=1)
 
         head = self.head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=HEAD_W, height=h)
-        head.grid(row=0, column=0, sticky="nsw")
+        head.grid(row=0, column=0, sticky="nsw", padx=(8, 0) if lux else 0, pady=8 if lux else 0)
         head.grid_propagate(False)
         head.grid_columnconfigure(2, weight=1)
         head.grid_rowconfigure(0, weight=1)
@@ -42,12 +45,13 @@ class Lane:
         self.grip.bind("<B1-Motion>", lambda e: self.app.drag_move(self, e))
         self.grip.bind("<ButtonRelease-1>", lambda e: self.app.drag_end(self, e))
         sep = ctk.CTkFrame(self.frame, fg_color=BORDER, width=1, height=1, corner_radius=0)
-        sep.grid(row=0, column=0, sticky="nse")
+        if not lux:
+            sep.grid(row=0, column=0, sticky="nse")
 
         # row 1: dot, name, (compact: V, A), M, S, ×
         self.dot = ctk.CTkLabel(head, text="", image=icon("dot", self.color, 12), width=14)
         self.name_var = tk.StringVar(value=track.label)
-        self.name = ctk.CTkEntry(head, textvariable=self.name_var, font=font(13, "bold"), height=28,
+        self.name = ctk.CTkEntry(head, textvariable=self.name_var, font=font(15 if lux else 13, "bold"), height=28,
                                  fg_color=LANE_BG, border_width=1, border_color=LANE_BG,
                                  text_color=TEXT, corner_radius=6)
         self.name.bind("<FocusIn>", lambda e: (self.app.select(self),
@@ -69,8 +73,23 @@ class Lane:
                                         fg_color="transparent", hover_color=BTN_HOVER, text_color=DIM,
                                         font=font(12), command=lambda: self.app.remove_lane(self))
 
+        # Lux: a caption under the name (82 % / Muted / Solo), and on the right of the card the volume
+        # and a … menu (automation, rename, remove) that shows on hover
+        self.caption = ctk.CTkLabel(head, text="", font=font(12), text_color=MUTED, height=18, anchor="w")
+        self.side = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=172)
+        self.more_btn = ctk.CTkButton(self.side, text="", image=icon("more", TEXT2, 18), width=40, height=40,
+                                      corner_radius=20, fg_color="transparent", hover_color=BTN_HOVER,
+                                      command=self._more_menu)
+        if lux:
+            self.side.grid(row=0, column=2, sticky="ns", padx=(8, 8), pady=8)
+            self.side.grid_propagate(False)
+            self.side.grid_rowconfigure(0, weight=1)
+            self.side.grid_columnconfigure(0, weight=1)
+            self.more_btn.grid(row=0, column=1, padx=(4, 0))
+            hover_hint(self.more_btn, "More: automation, rename, remove")
+
         # row 2: Vol, value, slider, A (directly under S)
-        volrow = self.volrow = ctk.CTkFrame(head, fg_color="transparent")
+        volrow = self.volrow = ctk.CTkFrame(self.side if lux else head, fg_color="transparent")
         volrow.grid_columnconfigure(2, weight=1)
         self.vol_name = ctk.CTkLabel(volrow, text="Vol", text_color=MUTED, font=font(12), width=26, height=22,
                                      anchor="w")
@@ -86,7 +105,7 @@ class Lane:
         self.vol.grid(row=0, column=2, sticky="ew", padx=(0, 6))
 
         self.canvas = tk.Canvas(self.frame, height=h, bg=WAVE, highlightthickness=0, cursor="hand2")
-        self.canvas.grid(row=0, column=1, sticky="nsew")
+        self.canvas.grid(row=0, column=1, sticky="nsew", pady=8 if lux else 0)
         self.canvas.bind("<Configure>", lambda e: self.draw())
         self.canvas.bind("<Button-1>", self._press)
         self.canvas.bind("<B1-Motion>", self._motion)
@@ -110,12 +129,13 @@ class Lane:
         # A and × show while the mouse is over the lane (or it is selected); A stays while automation is on
         self.hot = False
         self._hot_job = None
-        for w in (self.frame, head, self.canvas):
+        for w in (self.frame, head, self.canvas, self.side):
             w.bind("<Enter>", lambda e: self._set_hot(True), add="+")
             w.bind("<Leave>", lambda e: self._check_hot(), add="+")
         self.selected = False
         self.line = ctk.CTkFrame(self.frame, fg_color=BORDER, height=1, corner_radius=0)
-        self.line.grid(row=1, column=0, columnspan=2, sticky="ew")
+        if not lux:
+            self.line.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.bars = []
         self.played = 0
         self.silent = False
@@ -161,8 +181,23 @@ class Lane:
             return
         self.compact = compact
         for w in (self.dot, self.name, self.v_btn, self.auto_btn, self.mute_btn, self.solo_btn, self.remove_btn,
-                  self.volrow):
+                  self.volrow, self.caption):
             w.grid_forget()
+        if self.lux:
+            # grip | dot name / caption | M S ……… waveform ……… volume  …
+            self.dot.grid(row=1, column=1, padx=(4, 6), sticky="w")
+            self.name.grid(row=1, column=2, sticky="ew", padx=(0, 6))
+            if not compact:
+                self.caption.grid(row=2, column=2, sticky="w", padx=(6, 0))
+            for b in (self.mute_btn, self.solo_btn):
+                b.configure(width=36, height=36, corner_radius=18, border_width=0)
+            self.mute_btn.grid(row=1, column=5, rowspan=2, padx=(0, 6))
+            self.solo_btn.grid(row=1, column=6, rowspan=2, padx=(0, 12))
+            self.vol_name.grid_forget()
+            self.vol_lbl.grid_forget()
+            self.volrow.grid(row=0, column=0, sticky="ew")
+            self.refresh_volume_row()
+            return
         r = 1
         self.dot.grid(row=r, column=1, padx=(2, 4), sticky="w")
         self.name.grid(row=r, column=2, sticky="ew", padx=(0, 4))
@@ -223,6 +258,7 @@ class Lane:
         self.track.volume = float(v) / 100.0
         if not self.track.auto_on:
             self.vol_lbl.configure(text=f"{int(round(v))}%")
+            self.refresh_caption()
         self.recolor()
         self.app.volume_changed(self)
 
@@ -260,7 +296,42 @@ class Lane:
                            button_color=dimc(self.color) if on else self.color,
                            button_hover_color=dimc(self.color) if on else self.color,
                            fg_color=dimc(self.dim) if on else self.dim)
+        self.refresh_caption()
         self.refresh_v()
+
+    def refresh_caption(self):
+        """Lux: the line under the name says what the track is doing."""
+        if not self.lux:
+            return
+        t = self.track
+        if t.mute:
+            text = "Muted"
+        elif t.solo:
+            text = "Solo"
+        elif self.silent:
+            text = "Silent while another track is solo"
+        elif t.auto_on:
+            text = "Volume follows automation"
+        else:
+            text = f"{int(round(t.volume * 100))}%"
+        self.caption.configure(text=text)
+
+    def _more_menu(self):
+        """Lux: the … menu (what Dark and Light show as A and × on the row)."""
+        self.app.select(self)
+        m = tk.Menu(self.frame, tearoff=0, bg=POPOVER, fg=TEXT, activebackground=BTN_HOVER,
+                    activeforeground=TEXT, bd=0, font=(theme.UI, 10))
+        m.add_command(label=("Turn off" if self.track.auto_on else "Draw") + " volume automation",
+                      command=self.toggle_auto)
+        m.add_command(label="Rename", command=lambda: (self.name.focus_set(), self.name._entry.select_range(0, "end")))
+        m.add_separator()
+        m.add_command(label="Remove track", command=lambda: self.app.remove_lane(self))
+        try:
+            x = self.more_btn.winfo_rootx()
+            y = self.more_btn.winfo_rooty() + self.more_btn.winfo_height()
+            m.tk_popup(x, y)
+        finally:
+            m.grab_release()
 
     def refresh_v(self):
         pop = self.app.vol_pop
@@ -279,9 +350,12 @@ class Lane:
         self.selected = on
         bg = SELECTED if on else LANE_BG
         self.head.configure(fg_color=bg)
+        if self.lux:
+            self.frame.configure(fg_color=bg)
+            self.side.configure(fg_color=bg)
         if self.app.root.focus_get() is not self.name._entry:
             self.name.configure(fg_color=bg, border_color=bg)
-        if on:
+        if on and not self.lux:
             self.stripe.place(x=0, y=0, relheight=1)
         else:
             self.stripe.place_forget()
@@ -299,8 +373,15 @@ class Lane:
             else:
                 btn.configure(fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT,
                               hover_color=BTN_HOVER, border_width=1)
+            if self.lux:
+                btn.configure(border_width=2 if (on and btn is self.mute_btn) else 0)
         bg = SELECTED if self.selected else LANE_BG
         show = self.shows_tools()
+        if self.lux:
+            self.more_btn.configure(image=icon("more", TEXT2 if show else bg, 18),
+                                    hover_color=BTN_HOVER if show else bg)
+            self.refresh_caption()
+            return
         if self.track.auto_on:
             self.auto_btn.configure(fg_color=GREEN_BG, border_color=GREEN_BORDER, text_color=GREEN_TXT,
                                     hover_color=GREEN_BG, state="normal")
@@ -316,6 +397,7 @@ class Lane:
     def set_silent(self, silent):
         if silent != self.silent:
             self.silent = silent
+            self.refresh_caption()
             self.draw()
 
     # --- waveform ---

@@ -379,7 +379,7 @@ class TracksMixin:
 
     def refresh_all(self):
         for i, lane in enumerate(self.lanes):
-            lane.frame.grid(row=i, column=0, sticky="ew")
+            lane.frame.grid(row=i, column=0, sticky="ew", pady=(0, 8) if getattr(lane, "lux", False) else 0)
         if self.lanes:
             self.empty.grid_forget()
             n = len(self.lanes)

@@ -131,8 +131,7 @@ class SplitPopover:
         bx = self.anchor.winfo_rootx() - r.winfo_rootx()
         x = min(max(12, bx - 120), r.winfo_width() - self.W - 12)
         y = self.anchor.winfo_rooty() - r.winfo_rooty() + self.anchor.winfo_height() + 8
-        self.frame.place(x=x, y=y)
-        self.frame.lift()
+        self.app.fit_popover(self.frame, x, y)
 
     def is_open(self):
         return bool(self.frame.winfo_exists() and self.frame.winfo_ismapped())

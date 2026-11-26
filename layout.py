@@ -384,6 +384,16 @@ class LayoutMixin:
             self.fade_inner.place(relx=0, rely=0.5, anchor="w")
         else:
             self.fade_inner.place_forget()
+        if theme.MODE == "lux":
+            # Lux: on = a peach button with an ink icon (peach means selected); the fade only while on
+            if on:
+                self.fade_box.grid()
+            else:
+                self.fade_box.grid_remove()
+            self.loop_btn.configure(fg_color=ACCENT if on else BTN, border_width=0,
+                                    image=icon("loop", ACCENT_TXT if on else TEXT, 18),
+                                    hover_color=ACCENT_HOVER if on else BTN_HOVER)
+            return
         # on: accent tint, accent border and icon; off: an outlined button
         self.loop_btn.configure(fg_color=ACCENT_TINT if on else BTN, border_color=ACCENT if on else BORDER2,
                                 image=icon("loop", ACCENT if on else MUTED, 18),

@@ -278,9 +278,30 @@ class App(LayoutMixin, LuxLayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixi
             elif kind == "split_done" and ev[1] is self.split_job:
                 self._split_finished(ev[1], ev[2], ev[3])
 
+    # ----- popovers: one at a time, always inside the window -----
+    def close_popovers(self, keep=None):
+        for pop in (self.split_pop, self.settings_pop, self.recent_pop):
+            try:
+                if pop is not None and pop is not keep and pop.frame.winfo_exists() and pop.is_open():
+                    pop.close()
+            except tk.TclError:
+                pass
+
+    def fit_popover(self, frame, x, y):
+        """Place a popover at (x, y) in the window, moved so it stays inside the window's frame."""
+        r = self.root
+        r.update_idletasks()
+        w = max(frame.winfo_reqwidth(), frame.winfo_width() if frame.winfo_ismapped() else 0)
+        h = frame.winfo_reqheight()
+        x = max(12, min(x, r.winfo_width() - w - 12))
+        y = max(12, min(y, r.winfo_height() - h - 12))
+        frame.place(x=x, y=y)
+        frame.lift()
+
     # ----- Split song -----
     def open_split(self):
         import split_ui
+        self.close_popovers(keep=self.split_pop)
         if self.split_pop is None or not self.split_pop.frame.winfo_exists():
             self.split_pop = split_ui.SplitPopover(self, self.split_btn)
         elif self.split_pop.is_open():
@@ -334,6 +355,9 @@ class App(LayoutMixin, LuxLayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixi
         elif state[0] == "done":
             self.split_btn.configure(image=icon("check", GREEN, 16), text="Done", border_color=GREEN_BORDER,
                                   text_color=GREEN_TXT)
+        elif theme.MODE == "lux":
+            self.split_btn.configure(image=icon("plus", TEXT, 14), text="Split song", border_color=BORDER2,
+                                     text_color=TEXT)
         else:
             self.split_btn.configure(image=icon("split", ACCENT_SOFT, 18), text="Split",
                                   border_color=BORDER2, text_color=TEXT2)
@@ -347,6 +371,7 @@ class App(LayoutMixin, LuxLayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixi
 
     # ----- export -----
     def open_export(self):
+        self.close_popovers()
         if not self.lanes:
             self.flash("Add some audio first.")
             return
@@ -386,6 +411,7 @@ class App(LayoutMixin, LuxLayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixi
     # ----- settings / updates -----
     def open_settings(self):
         import settings_menu
+        self.close_popovers(keep=self.settings_pop)
         if self.settings_pop is not None and self.settings_pop.frame.winfo_exists():
             if self.settings_pop.is_open():
                 self.settings_pop.close()

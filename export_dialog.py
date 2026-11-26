@@ -142,7 +142,20 @@ class ExportDialog:
         win.protocol("WM_DELETE_WINDOW", self.close)
         win.bind("<Escape>", lambda e: self.close())
         self.refresh()
+        self._centre()
         win.after(150, lambda: (win.grab_set() if win.winfo_exists() else None))
+
+    def _centre(self):
+        """Over the middle of the main window, and never off the screen."""
+        win, root = self.win, self.app.root
+        win.update_idletasks()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        x = root.winfo_rootx() + (root.winfo_width() - w) // 2
+        y = root.winfo_rooty() + max(40, (root.winfo_height() - h) // 3)
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        x = max(0, min(x, sw - w))
+        y = max(0, min(y, sh - h - 48))
+        win.geometry(f"+{x}+{y}")
 
     def _section(self, parent, text):
         lbl = ctk.CTkLabel(parent, text=text, font=font(11), text_color=MUTED)

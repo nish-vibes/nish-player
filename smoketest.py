@@ -859,6 +859,8 @@ def run(app, out_dir):
         yield 0.6
         shot("8c-light-youtube")
         app.split_pop.close()
+        from theme import db_pos as _db_pos
+        fader_db_pos0 = _db_pos(0.0)
         # Lux: the JAMM Lux look (ink ground, peach selected, orange Play)
         app.open_settings()
         yield 0.3
@@ -870,17 +872,47 @@ def run(app, out_dir):
         assert app.settings_pop is not None and app.settings_pop.theme_seg.get() == "Lux"
         app.settings_pop.close()
         # the Lux window: song header with Length, Speed and Pitch; speed in %, pitch in st
-        assert app.hero_title is not None and app.hero_title.winfo_ismapped(), "Lux song header"
-        assert app.hero_kicker.cget("text").startswith("NOW PLAYING")
-        assert app.hero_facts["Speed"].cget("text") == f"{round(app.speed * 100)}%"
+        assert app.hero_title is not None and app.hero.winfo_ismapped(), "Lux song header"
+        assert app._hero["kicker"].startswith("NOW PLAYING")
+        assert app._hero["Speed"] == f"{round(app.speed * 100)}%"
         app.pitch_slider.set(-1)
         app.on_pitch(-1)
         yield 0.2
-        assert app.hero_facts["Pitch"].cget("text") == "−1 st" and app.pitch_val.cget("text") == "−1 st"
+        assert app._hero["Pitch"] == "−1 st" and app.pitch_val.cget("text") == "−1 st"
+        assert app.master_slider.winfo_ismapped() and not app.fader.card.winfo_ismapped()
+        app.fader.set_pos(0.5)
+        assert abs(app.master_slider.get() - 0.5) < 0.01 and app.master_db.cget("text") == \
+            app.fader.db_lbl.cget("text")
+        app.fader.set_pos(fader_db_pos0)
+        lane0 = app.lanes[0]
+        assert lane0.side.winfo_ismapped() and lane0.more_btn.winfo_ismapped()
+        assert not lane0.remove_btn.winfo_ismapped() and lane0.caption.cget("text")
+        lane0.toggle_mute()
+        yield 0.1
+        assert lane0.caption.cget("text") == "Muted"
+        lane0.toggle_mute()
+        # popovers: one at a time, inside the window
+        app.open_settings()
+        yield 0.3
+        app.open_split()
+        yield 0.5
+        assert not app.settings_pop.is_open() and app.split_pop.is_open(), "only one popover"
+        r = app.root
+        for pop in (app.split_pop,):
+            f = pop.frame
+            assert f.winfo_x() >= 0 and f.winfo_x() + f.winfo_width() <= r.winfo_width(), "inside (x)"
+            assert f.winfo_y() >= 0, "inside (y)"
+        app.open_settings()
+        yield 0.4
+        assert app.settings_pop.is_open() and not app.split_pop.is_open()
+        f = app.settings_pop.frame
+        assert f.winfo_x() >= 0 and f.winfo_x() + f.winfo_width() <= r.winfo_width()
+        app.settings_pop.close()
         app.pitch_slider.set(0)
         app.on_pitch(0)
         lane = app.lanes[0]
         assert lane.colors()[0] in (theme.LUX_WAVE[0],) or lane.silent or lane.track.volume < 1
+        assert lane.frame.cget("corner_radius") == 20
         assert app.time_lbl.winfo_ismapped() and app.play_btn.winfo_ismapped()
         yield 0.3
         shot("8d-lux")

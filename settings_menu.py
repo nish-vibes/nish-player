@@ -152,8 +152,7 @@ class SettingsMenu:
         w = self.frame.winfo_reqwidth()
         x = self.anchor.winfo_rootx() - r.winfo_rootx() + self.anchor.winfo_width() - w
         y = self.anchor.winfo_rooty() - r.winfo_rooty() + self.anchor.winfo_height() + 8
-        self.frame.place(x=max(12, x), y=y)
-        self.frame.lift()
+        self.app.fit_popover(self.frame, x, y)
 
     def is_open(self):
         return bool(self.frame.winfo_exists() and self.frame.winfo_ismapped())

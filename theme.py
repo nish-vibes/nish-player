@@ -112,15 +112,15 @@ TRACK_PAIRS = CANVAS_TRACKS + [   # more lanes than the canvas shows: (strong, s
 # colour system yet.
 LUX = {
     "BG": "#0d0d0d", "HEADER": "#0d0d0d", "PANEL": "#141414", "CARD": "#1a1a1a", "LANE_BG": "#1a1a1a",
-    "WAVE": "#141414", "DECK": "#1a1a1a", "POPOVER": "#1a1a1a", "FIELD": "#0d0d0d", "BTN": "#262626",
-    "SEPARATOR": "#2b2a29", "SELECTED": "#2a221d", "CHIP": "#262626", "BORDER": "#262626",
+    "WAVE": "#1a1a1a", "DECK": "#1a1a1a", "POPOVER": "#1a1a1a", "FIELD": "#0d0d0d", "BTN": "#262626",
+    "SEPARATOR": "#2b2a29", "SELECTED": "#221c18", "CHIP": "#262626", "BORDER": "#262626",
     "BORDER2": "#353433", "BORDER_POP": "#3a3938", "CONTROL": "#6c6b6a",
     "TEXT": "#faf8f6", "TEXT2": "#d9d7d5", "SOFT": "#c6c4c3", "MUTED": "#b3b2b0", "DIM": "#9e9c9b",
     "ACCENT": "#ffd2b4", "ACCENT_TXT": "#0d0d0d", "ACCENT_SOFT": "#ffd2b4", "ACCENT_TINT": "#2a221d",
     "ACCENT_BAND": "#3d3029", "ACCENT_TRACK": "#3a2f28", "ACCENT_STRONG": "#ffe6d4",
     "WARN": "#8fb0ff", "WARN_KNOB": "#faf8f6", "WARN_TRACK": "#8fb0ff", "LAMP": "#fe8b48",
     "RED": "#ff7a7a", "RED_TXT": "#ff9a9a", "RED_BG": "#3a1f1f", "RED_BORDER": "#6b3030",
-    "BTN_HOVER": "#333231", "THUMB": "#2e2e2d", "SELECTED_WAVE": "#1f1a17", "DROP_HOT": "#2a221d",
+    "BTN_HOVER": "#333231", "THUMB": "#2e2e2d", "SELECTED_WAVE": "#221c18", "DROP_HOT": "#2a221d",
     "RANGE_IDLE": "#262626", "CONTROL2": "#4a4948", "SWITCH_OFF": "#3a3938", "SWITCH_KNOB": "#faf8f6",
     "GRIP": "#6c6b6a", "BTN_TXT": "#c6c4c3", "ACCENT_HOVER": "#ffe0ca", "ACCENT_TINT_HOVER": "#33291f",
     "ACCENT_SEL": "#4a3a30", "ACCENT_SEL_HOVER": "#574438", "CHIP_ACCENT": "#2a221d",
@@ -383,6 +383,13 @@ def icon(name, color, size=16):
     elif name == "moon":
         d.ellipse([S * .14, S * .14, S * .82, S * .82], fill=color)
         d.ellipse([S * .34, S * .04, S * .98, S * .66], fill=(0, 0, 0, 0))
+    elif name == "more":  # three dots
+        r = S * .075
+        for cx in (.22, .5, .78):
+            d.ellipse([S * cx - r, S * .5 - r, S * cx + r, S * .5 + r], fill=color)
+    elif name == "plus":
+        d.line([(S * .5, S * .18), (S * .5, S * .82)], fill=color, width=w)
+        d.line([(S * .18, S * .5), (S * .82, S * .5)], fill=color, width=w)
     elif name == "chevron":  # small ▾
         d.line([(S * .22, S * .38), (S * .5, S * .66), (S * .78, S * .38)], fill=color, width=w + 2,
                joint="curve")

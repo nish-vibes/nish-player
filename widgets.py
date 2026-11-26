@@ -88,6 +88,9 @@ class MasterFader:
         c.coords(self.cap, self.FX - 22, y - 12, self.FX + 22, y + 12)
         c.coords(self.cap_line, self.FX - 15, y, self.FX + 15, y)
         self.db_lbl.configure(text="−∞ dB" if db == -math.inf else f"{db:+.1f} dB".replace("-", "−"))
+        cb = getattr(self, "on_change", None)     # the Lux master slider follows
+        if cb is not None:
+            cb(self.pos)
 
     def set_levels(self, peaks):
         for i in range(2):
