@@ -241,7 +241,7 @@ jobs:
         with:
           name: screenshots
           path: gui-smoke/*.png
-          retention-days: 14
+          retention-days: 7
 
       - name: Zip
         shell: pwsh
@@ -254,7 +254,7 @@ jobs:
         with:
           name: NiSHPlayer-windows
           path: NiSHPlayer-windows.zip
-          retention-days: 14
+          retention-days: 7
 
       - name: Publish release
         if: steps.rel.outputs.full == 'true'
