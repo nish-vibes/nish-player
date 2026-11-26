@@ -37,6 +37,7 @@ import updater  # noqa: E402
 from export_dialog import ExportDialog  # noqa: E402
 from lane import Lane  # noqa: E402
 from layout import LayoutMixin  # noqa: E402
+from lux_layout import LuxLayoutMixin  # noqa: E402
 from project_ui import ProjectMixin  # noqa: E402
 from speed_pitch import SpeedPitchMixin  # noqa: E402
 from tracks import TracksMixin  # noqa: E402
@@ -52,7 +53,7 @@ def splitter_is_url(src):
 # Main window
 # ---------------------------------------------------------------------------
 
-class App(LayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
+class App(LayoutMixin, LuxLayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixin):
     """The main window. Its parts live in layout.py, tracks.py, speed_pitch.py and project_ui.py."""
 
     def __init__(self, root):

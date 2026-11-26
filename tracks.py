@@ -394,6 +394,7 @@ class TracksMixin:
             self.song_lbl.pack_forget()
         self.refresh_lanes()
         self.draw_ruler()
+        self._update_hero()
         self._draw_drop()
         self.root.after_idle(self._fit_scrollbar)
 

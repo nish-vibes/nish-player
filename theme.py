@@ -199,6 +199,31 @@ def _lux_family(display):
     return _LUX_FAMILY[key]
 
 
+def _first_family(wish, fallback):
+    try:
+        import tkinter.font as tkfont
+        have = set(tkfont.families())
+    except Exception:
+        have = set()
+    return next((f for f in wish if f in have), fallback)
+
+
+def lux_display_family():
+    """Lux: the song name and screen titles (Urbanist when installed)."""
+    return _lux_family(True)
+
+
+def lux_numeral_family():
+    """Lux: light numerals for the big figures (times, speed, pitch)."""
+    if "num" not in _LUX_FAMILY:
+        _LUX_FAMILY["num"] = _first_family(
+            ["Urbanist Light", "Urbanist", "Segoe UI Variable Display Light", "Segoe UI Light"], UI)
+    return _LUX_FAMILY["num"]
+
+
+LUX_WAVE = ("#faf8f6", "#4a4948")   # Lux waveforms: played warm white, the rest faint
+
+
 def font(size=13, weight="normal", mono=False):
     if MODE == "lux" and not mono:
         return ctk.CTkFont(family=_lux_family(size >= 20), size=size, weight=weight)

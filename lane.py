@@ -7,6 +7,7 @@ import customtkinter as ctk
 import numpy as np
 
 import engine
+import theme
 from theme import *  # noqa: F401,F403
 from widgets import ForkSwitch, MasterFader, ctrl_reset, hover_hint  # noqa: F401
 
@@ -323,15 +324,17 @@ class Lane:
 
     def colors(self):
         bg = self.bg()
+        # Lux: warm-white waveforms (the track's colour stays on its dot and fader)
+        color, dimc_ = (theme.LUX_WAVE if theme.MODE == "lux" else (self.color, self.dim))
         if self.silent:
-            return blend(self.color, bg, 0.65), blend(self.dim, bg, 0.55)
+            return blend(color, bg, 0.65), blend(dimc_, bg, 0.55)
         if self.track.auto_on:
-            return blend(self.color, bg, 0.55), blend(self.dim, bg, 0.55)
+            return blend(color, bg, 0.55), blend(dimc_, bg, 0.55)
         # quieter tracks look quieter: up to 60 % towards the background at volume 0
         k = 0.6 * (1 - math.sqrt(max(0.0, min(1.0, self.track.volume))))
         if k < 0.01:
-            return self.color, self.dim
-        return blend(self.color, bg, k), blend(self.dim, bg, k * 0.8)
+            return color, dimc_
+        return blend(color, bg, k), blend(dimc_, bg, k * 0.8)
 
     def recolor(self):
         """New colours for the bars without redrawing them (volume changes while dragging)."""

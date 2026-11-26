@@ -5,6 +5,8 @@ import traceback
 import customtkinter as ctk
 
 import engine
+import theme
+from lux_layout import lux_semis
 from theme import *  # noqa: F401,F403
 
 
@@ -28,13 +30,19 @@ class SpeedPitchMixin:
 
     def on_speed(self, v):
         self.speed = round(float(v), 2)
-        self.speed_val.configure(text=f"{self.speed:.2f}×")
+        self.speed_val.configure(text=f"{round(self.speed * 100)}%" if theme.MODE == "lux"
+                                 else f"{self.speed:.2f}×")
+        self._update_hero()
         self._live()
 
     def on_pitch(self, v):
         self.semis = int(round(float(v)))
-        self.pitch_val.configure(text=f"{engine.fmt_semitones(self.semis)} semitones".replace("-", "−")
-                                 if self.semis else "0 semitones")
+        if theme.MODE == "lux":
+            self.pitch_val.configure(text=lux_semis(self.semis))
+        else:
+            self.pitch_val.configure(text=f"{engine.fmt_semitones(self.semis)} semitones".replace("-", "−")
+                                     if self.semis else "0 semitones")
+        self._update_hero()
         self._live()
 
     def on_fine(self, v):

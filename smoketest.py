@@ -869,6 +869,19 @@ def run(app, out_dir):
         assert app.root.cget("fg_color") == theme.LUX["BG"] or theme.LUX["BG"] in str(app.root.cget("fg_color"))
         assert app.settings_pop is not None and app.settings_pop.theme_seg.get() == "Lux"
         app.settings_pop.close()
+        # the Lux window: song header with Length, Speed and Pitch; speed in %, pitch in st
+        assert app.hero_title is not None and app.hero_title.winfo_ismapped(), "Lux song header"
+        assert app.hero_kicker.cget("text").startswith("NOW PLAYING")
+        assert app.hero_facts["Speed"].cget("text") == f"{round(app.speed * 100)}%"
+        app.pitch_slider.set(-1)
+        app.on_pitch(-1)
+        yield 0.2
+        assert app.hero_facts["Pitch"].cget("text") == "−1 st" and app.pitch_val.cget("text") == "−1 st"
+        app.pitch_slider.set(0)
+        app.on_pitch(0)
+        lane = app.lanes[0]
+        assert lane.colors()[0] in (theme.LUX_WAVE[0],) or lane.silent or lane.track.volume < 1
+        assert app.time_lbl.winfo_ismapped() and app.play_btn.winfo_ismapped()
         yield 0.3
         shot("8d-lux")
         app.open_export()
@@ -882,7 +895,7 @@ def run(app, out_dir):
         app.apply_theme("dark")
         yield 0.6
         assert theme.MODE == "dark" and settings.get("theme") == "dark" and len(app.lanes) == n_lanes
-        assert app.play_btn.cget("fg_color") == theme.PALETTE["ACCENT"][0]
+        assert app.play_btn.cget("fg_color") == theme.PALETTE["ACCENT"][0] and app.hero_title is None
         log("ok: theme switch in the cog menu: dark (default) -> light -> Lux -> dark, remembered, tracks kept")
 
         section("loop area: drag on the timeline, loop button, export only the area, double-click clears")

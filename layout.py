@@ -17,6 +17,9 @@ class LayoutMixin:
 
     # ----- layout -----
     def _build_ui(self):
+        self.hero_title = None                   # (the Lux window's song header)
+        if theme.MODE == "lux":
+            return self._build_ui_lux()          # lux_layout.py: the JAMM Lux mockup's window
         self.root.configure(fg_color=BG)
         self._build_header()
         main = ctk.CTkFrame(self.root, fg_color=BG, corner_radius=0)
