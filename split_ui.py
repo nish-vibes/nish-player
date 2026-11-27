@@ -13,6 +13,7 @@ import customtkinter as ctk
 
 import engine
 import splitter
+import theme
 from widgets import EntryHint
 from theme import *  # noqa: F401,F403  (colours follow the light/dark theme)
 
@@ -103,7 +104,8 @@ class SplitPopover:
                                   corner_radius=14, width=self.W)
         head = ctk.CTkFrame(self.frame, fg_color="transparent")
         head.pack(fill="x", padx=20, pady=(14, 6))
-        self.title = ctk.CTkLabel(head, text="Split song", font=font(16, "bold"), text_color=TEXT)
+        self.title = ctk.CTkLabel(head, text="Split song", font=font(24 if theme.MODE == "lux" else 16, "bold"),
+                                  text_color=TEXT)
         self.title.pack(side="left")
         ctk.CTkButton(head, text="", image=icon("close", MUTED, 13), width=30, height=30,
                       fg_color="transparent", hover_color=BTN_HOVER, command=self.close).pack(side="right")
@@ -117,6 +119,7 @@ class SplitPopover:
         self.show_info()        # the card's hint and the name field's placeholder, before anything is typed
         self.frame.bind("<Escape>", lambda e: self.close())
         self.show("work" if self.app.split_job else "setup")
+        theme.lux_polish(self.frame)      # Lux: JAMM Lux shapes
         self.place()
 
     # ----- layout helpers -----
@@ -225,20 +228,31 @@ class SplitPopover:
                                      text_color=DIM, anchor="w", height=18)
 
         # artist (the main folder in the library) and song (its subfolder, and the file names)
-        self.section(p, "ARTIST")
+        lux = theme.MODE == "lux"
+        if lux:     # Lux: Artist and Song side by side
+            names = ctk.CTkFrame(p, fg_color="transparent")
+            names.pack(fill="x")
+            names.grid_columnconfigure((0, 1), weight=1, uniform="names")
+            a_col = ctk.CTkFrame(names, fg_color="transparent")
+            a_col.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+            s_col = ctk.CTkFrame(names, fg_color="transparent")
+            s_col.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        a_parent = a_col if lux else p
+        self.section(a_parent, "ARTIST")
         self.artist_var = tk.StringVar()
-        self.artist_entry = ctk.CTkEntry(p, textvariable=self.artist_var,
-                                         height=40, font=font(13), fg_color=FIELD, border_color=BORDER2,
-                                         text_color=TEXT)
+        self.artist_entry = ctk.CTkEntry(a_parent, textvariable=self.artist_var,
+                                         height=44 if lux else 40, font=font(13), fg_color=FIELD,
+                                         border_color=BORDER2, text_color=TEXT)
         self.artist_entry.pack(fill="x")
         self.artist_hint = EntryHint(self.artist_entry, self.artist_var, "Blank = artist or channel name")
         self.artist_var.trace_add("write", lambda *a: self.refresh_preview())
 
-        self.section(p, "SONG")
+        s_parent = s_col if lux else p
+        self.section(s_parent, "SONG")
         self.name_var = tk.StringVar()
-        self.name_entry = ctk.CTkEntry(p, textvariable=self.name_var,
-                                       height=40, font=font(13), fg_color=FIELD, border_color=BORDER2,
-                                       text_color=TEXT)
+        self.name_entry = ctk.CTkEntry(s_parent, textvariable=self.name_var,
+                                       height=44 if lux else 40, font=font(13), fg_color=FIELD,
+                                       border_color=BORDER2, text_color=TEXT)
         self.name_entry.pack(fill="x")
         self.name_hint = EntryHint(self.name_entry, self.name_var, "Blank = video title")
         # shown while typing when Artist\Song\ is in the library already (it is never written into)
@@ -340,6 +354,12 @@ class SplitPopover:
         is_file = self.source() == "file"
         for key, (b, ic) in self.src_btns.items():
             on = key == self.source()
+            if theme.MODE == "lux":       # Lux: peach means selected (ink text on it)
+                b.configure(fg_color=ACCENT if on else FIELD, border_color=ACCENT if on else FIELD,
+                            hover_color=ACCENT_HOVER if on else BTN_HOVER, text_color=ACCENT_TXT if on else SOFT,
+                            font=font(13, "bold") if on else font(13),
+                            image=icon(ic, ACCENT_TXT if on else DIM, 15))
+                continue
             b.configure(fg_color=ACCENT_TINT if on else FIELD, border_color=ACCENT if on else FIELD,
                         hover_color=ACCENT_TINT_HOVER if on else BTN_HOVER, text_color=ACCENT_SOFT if on else SOFT,
                         font=font(13, "bold") if on else font(13), image=icon(ic, ACCENT_SOFT if on else DIM, 15))
@@ -358,7 +378,7 @@ class SplitPopover:
         sel += ["tuned"] if tune["original"] else []
         splits = bool(splitter.model_for(self.s, is_file))
         verb = "Split song" if splits else ("Make files" if is_file else "Download")
-        self.go.configure(text=verb, state="normal" if sel else "disabled", fg_color=ACCENT if sel else CONTROL)
+        self.go.configure(text=verb, state="normal" if sel else "disabled", fg_color=ACTION if sel else CONTROL)
         self.refresh_preview()
 
     def opts(self):

@@ -20,20 +20,24 @@ class Lane:
     BAR = 4  # px per waveform bar
     PAD = 8  # px above and below the automation line's range
     H_MIN, H_MAX, H_DEF, H_COMPACT = 44, 200, 92, 64   # one height for every lane; compact below 64
+    LUX_HEAD_W = 452   # Lux: every control sits left of the waveform (name, volume, M, S, A, ×)
+    LUX_INSET = 6      # Lux: the card's inner margin (keeps its round corners), part of the track height
 
     def __init__(self, app, parent, track, colors):
         self.app, self.track = app, track
         self.color, self.dim = colors
-        h = app.track_h
         self.compact = None
         lux = self.lux = theme.MODE == "lux"
-        # Lux: each track is a rounded card (head, waveform and the volume on the right on one colour)
-        self.frame = ctk.CTkFrame(parent, fg_color=LANE_BG if lux else WAVE, corner_radius=20 if lux else 0,
+        h = self.inner_h(app.track_h)
+        # Lux: each track is a rounded card; the track height is the card's height
+        self.frame = ctk.CTkFrame(parent, fg_color=LANE_BG if lux else WAVE, corner_radius=14 if lux else 0,
                                   border_width=0)
         self.frame.grid_columnconfigure(1, weight=1)
 
-        head = self.head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=HEAD_W, height=h)
-        head.grid(row=0, column=0, sticky="nsw", padx=(8, 0) if lux else 0, pady=8 if lux else 0)
+        inset = self.LUX_INSET
+        head = self.head = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0,
+                                        width=self.LUX_HEAD_W if lux else HEAD_W, height=h)
+        head.grid(row=0, column=0, sticky="nsw", padx=(inset, 0) if lux else 0, pady=inset if lux else 0)
         head.grid_propagate(False)
         head.grid_columnconfigure(2, weight=1)
         head.grid_rowconfigure(0, weight=1)
@@ -73,23 +77,11 @@ class Lane:
                                         fg_color="transparent", hover_color=BTN_HOVER, text_color=DIM,
                                         font=font(12), command=lambda: self.app.remove_lane(self))
 
-        # Lux: a caption under the name (82 % / Muted / Solo), and on the right of the card the volume
-        # and a … menu (automation, rename, remove) that shows on hover
+        # Lux: a caption under the name (82 % / Muted / Solo); click the name to rename it
         self.caption = ctk.CTkLabel(head, text="", font=font(12), text_color=MUTED, height=18, anchor="w")
-        self.side = ctk.CTkFrame(self.frame, fg_color=LANE_BG, corner_radius=0, width=172)
-        self.more_btn = ctk.CTkButton(self.side, text="", image=icon("more", TEXT2, 18), width=40, height=40,
-                                      corner_radius=20, fg_color="transparent", hover_color=BTN_HOVER,
-                                      command=self._more_menu)
-        if lux:
-            self.side.grid(row=0, column=2, sticky="ns", padx=(8, 8), pady=8)
-            self.side.grid_propagate(False)
-            self.side.grid_rowconfigure(0, weight=1)
-            self.side.grid_columnconfigure(0, weight=1)
-            self.more_btn.grid(row=0, column=1, padx=(4, 0))
-            hover_hint(self.more_btn, "More: automation, rename, remove")
 
         # row 2: Vol, value, slider, A (directly under S)
-        volrow = self.volrow = ctk.CTkFrame(self.side if lux else head, fg_color="transparent")
+        volrow = self.volrow = ctk.CTkFrame(head, fg_color="transparent")
         volrow.grid_columnconfigure(2, weight=1)
         self.vol_name = ctk.CTkLabel(volrow, text="Vol", text_color=MUTED, font=font(12), width=26, height=22,
                                      anchor="w")
@@ -105,7 +97,8 @@ class Lane:
         self.vol.grid(row=0, column=2, sticky="ew", padx=(0, 6))
 
         self.canvas = tk.Canvas(self.frame, height=h, bg=WAVE, highlightthickness=0, cursor="hand2")
-        self.canvas.grid(row=0, column=1, sticky="nsew", pady=8 if lux else 0)
+        self.canvas.grid(row=0, column=1, sticky="nsew", padx=(0, inset + 8) if lux else 0,
+                         pady=inset if lux else 0)
         self.canvas.bind("<Configure>", lambda e: self.draw())
         self.canvas.bind("<Button-1>", self._press)
         self.canvas.bind("<B1-Motion>", self._motion)
@@ -121,6 +114,13 @@ class Lane:
         head.bind("<B1-Motion>", lambda e: self.app.resize_move(e))
         head.bind("<ButtonRelease-1>", lambda e: self.app.resize_end())
         head.bind("<Double-Button-1>", lambda e: self._edge_double(head, e))
+        if lux:   # Lux: the card's bottom margin is the resize edge too
+            f = self.frame
+            f.bind("<Motion>", lambda e: self._edge_cursor(f, e))
+            f.bind("<Button-1>", lambda e: self._edge_press(f, e) or self.app.select(self))
+            f.bind("<B1-Motion>", lambda e: self.app.resize_move(e))
+            f.bind("<ButtonRelease-1>", lambda e: self.app.resize_end())
+            f.bind("<Double-Button-1>", lambda e: self._edge_double(f, e))
         hover_hint(self.mute_btn, "Mute  ·  M")
         hover_hint(self.solo_btn, "Solo  ·  S   (Ctrl+click: only this track)")
         hover_hint(self.auto_btn, "Volume automation: draw the volume over time")
@@ -129,7 +129,7 @@ class Lane:
         # A and × show while the mouse is over the lane (or it is selected); A stays while automation is on
         self.hot = False
         self._hot_job = None
-        for w in (self.frame, head, self.canvas, self.side):
+        for w in (self.frame, head, self.canvas):
             w.bind("<Enter>", lambda e: self._set_hot(True), add="+")
             w.bind("<Leave>", lambda e: self._check_hot(), add="+")
         self.selected = False
@@ -184,18 +184,22 @@ class Lane:
                   self.volrow, self.caption):
             w.grid_forget()
         if self.lux:
-            # grip | dot name / caption | M S ……… waveform ……… volume  …
+            # grip | dot name / caption | volume | M S A | ×   ……… waveform ………
             self.dot.grid(row=1, column=1, padx=(4, 6), sticky="w")
             self.name.grid(row=1, column=2, sticky="ew", padx=(0, 6))
             if not compact:
-                self.caption.grid(row=2, column=2, sticky="w", padx=(6, 0))
-            for b in (self.mute_btn, self.solo_btn):
-                b.configure(width=36, height=36, corner_radius=18, border_width=0)
-            self.mute_btn.grid(row=1, column=5, rowspan=2, padx=(0, 6))
-            self.solo_btn.grid(row=1, column=6, rowspan=2, padx=(0, 12))
+                self.caption.grid(row=2, column=2, sticky="nw", padx=(6, 0))
+            size = 30 if compact else 34
+            for b in (self.mute_btn, self.solo_btn, self.auto_btn):
+                b.configure(width=size, height=size, corner_radius=size // 2, border_width=0)
             self.vol_name.grid_forget()
             self.vol_lbl.grid_forget()
-            self.volrow.grid(row=0, column=0, sticky="ew")
+            self.vol.configure(width=96)
+            self.volrow.grid(row=1, column=3, rowspan=2, padx=(4, 10))
+            self.mute_btn.grid(row=1, column=4, rowspan=2, padx=(0, 6))
+            self.solo_btn.grid(row=1, column=5, rowspan=2, padx=(0, 6))
+            self.auto_btn.grid(row=1, column=6, rowspan=2, padx=(0, 4))
+            self.remove_btn.grid(row=1, column=7, rowspan=2, padx=(0, 2))
             self.refresh_volume_row()
             return
         r = 1
@@ -212,9 +216,13 @@ class Lane:
             self.auto_btn.grid(row=2, column=6, padx=(0, 4), pady=(7, 0))
         self.refresh_volume_row()
 
+    def inner_h(self, h):
+        """Lux: the card is the track height, so its inside is a little lower."""
+        return max(30, h - 2 * self.LUX_INSET) if self.lux else h
+
     def set_height(self, h):
-        self.head.configure(height=h)
-        self.canvas.configure(height=h)
+        self.head.configure(height=self.inner_h(h))
+        self.canvas.configure(height=self.inner_h(h))
         self.layout()
 
     # --- resize from the bottom edge ---
@@ -316,23 +324,6 @@ class Lane:
             text = f"{int(round(t.volume * 100))}%"
         self.caption.configure(text=text)
 
-    def _more_menu(self):
-        """Lux: the … menu (what Dark and Light show as A and × on the row)."""
-        self.app.select(self)
-        m = tk.Menu(self.frame, tearoff=0, bg=POPOVER, fg=TEXT, activebackground=BTN_HOVER,
-                    activeforeground=TEXT, bd=0, font=(theme.UI, 10))
-        m.add_command(label=("Turn off" if self.track.auto_on else "Draw") + " volume automation",
-                      command=self.toggle_auto)
-        m.add_command(label="Rename", command=lambda: (self.name.focus_set(), self.name._entry.select_range(0, "end")))
-        m.add_separator()
-        m.add_command(label="Remove track", command=lambda: self.app.remove_lane(self))
-        try:
-            x = self.more_btn.winfo_rootx()
-            y = self.more_btn.winfo_rooty() + self.more_btn.winfo_height()
-            m.tk_popup(x, y)
-        finally:
-            m.grab_release()
-
     def refresh_v(self):
         pop = self.app.vol_pop
         open_ = bool(pop and pop.lane is self and pop.frame.winfo_exists())
@@ -352,7 +343,6 @@ class Lane:
         self.head.configure(fg_color=bg)
         if self.lux:
             self.frame.configure(fg_color=bg)
-            self.side.configure(fg_color=bg)
         if self.app.root.focus_get() is not self.name._entry:
             self.name.configure(fg_color=bg, border_color=bg)
         if on and not self.lux:
@@ -375,19 +365,17 @@ class Lane:
                               hover_color=BTN_HOVER, border_width=1)
             if self.lux:
                 btn.configure(border_width=2 if (on and btn is self.mute_btn) else 0)
+        if self.lux:
+            self.auto_btn.configure(border_width=0)
         bg = SELECTED if self.selected else LANE_BG
         show = self.shows_tools()
-        if self.lux:
-            self.more_btn.configure(image=icon("more", TEXT2 if show else bg, 18),
-                                    hover_color=BTN_HOVER if show else bg)
-            self.refresh_caption()
-            return
+        self.refresh_caption()
         if self.track.auto_on:
             self.auto_btn.configure(fg_color=GREEN_BG, border_color=GREEN_BORDER, text_color=GREEN_TXT,
                                     hover_color=GREEN_BG, state="normal")
-        elif show or self.compact:
-            self.auto_btn.configure(fg_color=BTN, border_color=BORDER2, text_color=DIM, hover_color=BTN_HOVER,
-                                    state="normal")
+        elif show or self.compact or self.lux:      # Lux: A is always there
+            self.auto_btn.configure(fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT if self.lux else DIM,
+                                    hover_color=BTN_HOVER, state="normal")
         else:                       # hidden until the mouse is over the lane (keeps its place)
             self.auto_btn.configure(fg_color=bg, border_color=bg, text_color=bg, hover_color=bg,
                                     state="disabled", text_color_disabled=bg)

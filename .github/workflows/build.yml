@@ -142,7 +142,7 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "$PWD\vendor;$env:PATH"
-          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat", "test_ytpack", "test_apppack", "test_autoupdate") {
+          foreach ($t in "test_engine", "test_splitter", "test_updater", "test_colors", "test_compat", "test_ytpack", "test_apppack", "test_autoupdate", "test_keydetect") {
             $out = python "tests/$t.py" 2>&1 | ForEach-Object { "$_" }
             $code = $LASTEXITCODE
             $out
@@ -241,7 +241,7 @@ jobs:
         with:
           name: screenshots
           path: gui-smoke/*.png
-          retention-days: 14
+          retention-days: 7
 
       - name: Zip
         shell: pwsh
@@ -254,7 +254,7 @@ jobs:
         with:
           name: NiSHPlayer-windows
           path: NiSHPlayer-windows.zip
-          retention-days: 14
+          retention-days: 7
 
       - name: Publish release
         if: steps.rel.outputs.full == 'true'

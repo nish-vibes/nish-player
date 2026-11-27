@@ -8,6 +8,7 @@ import customtkinter as ctk
 
 import engine
 import project
+import theme
 from engine import APP_NAME
 from theme import *  # noqa: F401,F403
 
@@ -41,6 +42,7 @@ class RecentMenu:
         if items:
             ctk.CTkFrame(f, fg_color="transparent", height=8).pack()
         f.bind("<Escape>", lambda e: self.close())
+        theme.lux_polish(self.frame)      # Lux: JAMM Lux shapes
         self.place()
 
     def _row(self, path):

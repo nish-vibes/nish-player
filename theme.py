@@ -221,7 +221,42 @@ def lux_numeral_family():
     return _LUX_FAMILY["num"]
 
 
-LUX_WAVE = ("#faf8f6", "#4a4948")   # Lux waveforms: played warm white, the rest faint
+LUX_WAVE = ("#faf8f6", "#4a4948")
+
+
+def lux_polish(top, radius=24):
+    """Lux: give a popover or dialog the JAMM Lux shapes after it is built: round corners (24 on the
+    popover, 16 on its boxes, 12 on fields), pill buttons, peach uppercase section labels, bigger title."""
+    if MODE != "lux":
+        return
+    try:
+        if isinstance(top, ctk.CTkFrame):
+            top.configure(corner_radius=radius)
+    except Exception:
+        pass
+
+    def walk(w):
+        for c in w.winfo_children():
+            try:
+                if isinstance(c, ctk.CTkSegmentedButton):
+                    c.configure(corner_radius=max(12, c.cget("height") // 2))
+                    continue
+                if isinstance(c, ctk.CTkEntry):
+                    c.configure(corner_radius=12, border_color=CONTROL)
+                elif isinstance(c, ctk.CTkButton):
+                    h = int(c.cget("height"))
+                    if h >= 24:
+                        c.configure(corner_radius=h // 2)
+                elif isinstance(c, ctk.CTkFrame) and int(c.cget("border_width")) > 0:
+                    c.configure(corner_radius=max(int(c.cget("corner_radius")), 16))
+                elif isinstance(c, ctk.CTkLabel):
+                    t = c.cget("text")
+                    if isinstance(t, str) and len(t) > 2 and t.isupper() and c.cget("text_color") == MUTED:
+                        c.configure(text_color=ACCENT_SOFT, font=font(11, "bold"))
+            except Exception:
+                pass
+            walk(c)
+    walk(top)   # Lux waveforms: played warm white, the rest faint
 
 
 def font(size=13, weight="normal", mono=False):

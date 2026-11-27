@@ -4,6 +4,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
+import theme
 from theme import *  # noqa: F401,F403
 
 
@@ -164,12 +165,15 @@ class ForkSwitch(ctk.CTkFrame):
         c, W, H, K = self.c, self.W, self.H, self.K
         on = bool(self.var.get())
         c.delete("all")
-        track = ACCENT if on else SWITCH_OFF
+        lux = theme.MODE == "lux"
+        # Lux (as on the design canvas): on = an orange track with a peach knob
+        track = (ACTION if lux else ACCENT) if on else SWITCH_OFF
+        knob = ACCENT if (lux and on) else SWITCH_KNOB
         c.create_oval(0, 0, H, H, fill=track, outline="")
         c.create_oval(W - H, 0, W, H, fill=track, outline="")
         c.create_rectangle(H / 2, 0, W - H / 2, H, fill=track, outline="")
         x = W - 2 - K if on else 2
-        c.create_oval(x, 2, x + K, 2 + K, fill=SWITCH_KNOB, outline="")
+        c.create_oval(x, 2, x + K, 2 + K, fill=knob, outline="")
 
 
 def ctrl_reset(slider, value, handler):

@@ -874,19 +874,41 @@ def run(app, out_dir):
         # the Lux window: song header with Length, Speed and Pitch; speed in %, pitch in st
         assert app.hero_title is not None and app.hero.winfo_ismapped(), "Lux song header"
         assert app._hero["kicker"].startswith("NOW PLAYING")
-        assert app._hero["Speed"] == f"{round(app.speed * 100)}%"
+        assert "Speed" not in app._hero and "Pitch" not in app._hero and app._hero["Length"] != "–"
+        for _ in range(40):                                # the key is found in the background
+            if app._hero["Key"] != "…":
+                break
+            yield 0.1
+        key0 = app._hero["Key"]
+        assert key0 != "…", "key detection finished"
         app.pitch_slider.set(-1)
         app.on_pitch(-1)
         yield 0.2
-        assert app._hero["Pitch"] == "−1 st" and app.pitch_val.cget("text") == "−1 st"
+        assert app.pitch_val.cget("text") == "−1 st"
+        import keydetect
+        assert app._hero["Key"] == (keydetect.transpose(key0, -1) if key0 != "–" else "–"), app._hero["Key"]
+        log(f"ok: Lux header: Length {app._hero['Length']} | Key {key0} (−1 st: {app._hero['Key']})")
         assert app.master_slider.winfo_ismapped() and not app.fader.card.winfo_ismapped()
         app.fader.set_pos(0.5)
         assert abs(app.master_slider.get() - 0.5) < 0.01 and app.master_db.cget("text") == \
             app.fader.db_lbl.cget("text")
         app.fader.set_pos(fader_db_pos0)
         lane0 = app.lanes[0]
-        assert lane0.side.winfo_ismapped() and lane0.more_btn.winfo_ismapped()
-        assert not lane0.remove_btn.winfo_ismapped() and lane0.caption.cget("text")
+        # every control left of the waveform; A always shown; × shows on hover
+        assert lane0.auto_btn.winfo_ismapped() and lane0.auto_btn.cget("state") == "normal"
+        assert lane0.vol.winfo_ismapped() and lane0.caption.cget("text")
+        assert lane0.vol.winfo_rootx() < lane0.canvas.winfo_rootx(), "volume left of the waveform"
+        assert lane0.remove_btn.winfo_rootx() < lane0.canvas.winfo_rootx(), "× left of the waveform"
+        # track height: the card is the track height, and it follows the setting
+        h0 = app.track_h
+        app.set_track_height(120)
+        yield 0.3
+        assert abs(lane0.frame.winfo_height() - 120) <= 2, lane0.frame.winfo_height()
+        app.set_track_height(50)
+        yield 0.3
+        assert abs(lane0.frame.winfo_height() - 50) <= 2 and lane0.compact, lane0.frame.winfo_height()
+        app.set_track_height(h0, save=True)
+        yield 0.3
         lane0.toggle_mute()
         yield 0.1
         assert lane0.caption.cget("text") == "Muted"
@@ -912,7 +934,7 @@ def run(app, out_dir):
         app.on_pitch(0)
         lane = app.lanes[0]
         assert lane.colors()[0] in (theme.LUX_WAVE[0],) or lane.silent or lane.track.volume < 1
-        assert lane.frame.cget("corner_radius") == 20
+        assert lane.frame.cget("corner_radius") == 14
         assert app.time_lbl.winfo_ismapped() and app.play_btn.winfo_ismapped()
         yield 0.3
         shot("8d-lux")

@@ -175,8 +175,9 @@ class TracksMixin:
                                              text_color=ACCENT_TXT, corner_radius=10, height=20)
         self._resize_hint.configure(text=f"  ↕ {self.track_h} px · all tracks  ")
         r.update_idletasks()
-        x = lane.line.winfo_rootx() - r.winfo_rootx() + HEAD_W / 2
-        y = lane.line.winfo_rooty() - r.winfo_rooty() - 9
+        edge = lane.frame if getattr(lane, "lux", False) else lane.line     # Lux: the card's bottom
+        x = edge.winfo_rootx() - r.winfo_rootx() + HEAD_W / 2
+        y = edge.winfo_rooty() - r.winfo_rooty() + (edge.winfo_height() if edge is lane.frame else 0) - 9
         self._resize_hint.place(x=x, y=y, anchor="center")
         self._resize_hint.lift()
 

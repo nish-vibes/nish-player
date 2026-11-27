@@ -61,7 +61,8 @@ class SettingsMenu:
         ctk.CTkFrame(f, fg_color="transparent", width=self.W, height=1).pack(side="bottom")  # fixed width
         head = ctk.CTkFrame(f, fg_color="transparent")
         head.pack(fill="x", padx=18, pady=(14, 2))
-        ctk.CTkLabel(head, text="NiSH Player", font=font(15, "bold"), text_color=TEXT).pack(side="left")
+        ctk.CTkLabel(head, text="NiSH Player", font=font(22 if theme.MODE == "lux" else 15, "bold"),
+                     text_color=TEXT).pack(side="left")
         ctk.CTkButton(head, text="", image=icon("close", MUTED, 13), width=28, height=28, fg_color="transparent",
                       hover_color=BTN_HOVER, command=self.close).pack(side="right")
         self.version_lbl = ctk.CTkLabel(f, text="", font=font(12), text_color=MUTED, anchor="w", justify="left")
@@ -120,6 +121,7 @@ class SettingsMenu:
         self.btn = ToolButton(self.upd, "Check for updates", self.on_button, height=36)
         f.bind("<Escape>", lambda e: self.close())
         self.refresh()
+        theme.lux_polish(self.frame)      # Lux: JAMM Lux shapes
         self.place()
 
     def change_library(self):

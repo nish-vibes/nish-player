@@ -14,7 +14,7 @@ import theme
 from theme import *  # noqa: F401,F403
 from widgets import ForkSwitch, MasterFader, ctrl_reset, hover_hint
 
-SIDE_W = 172          # the volume and … column on the right of each track card (lane.py)
+from lane import Lane
 
 
 def num_font(size):
@@ -133,7 +133,7 @@ class LuxLayoutMixin:
         c.grid_configure(padx=(0, 0))
         self.hero_title = c        # (the old name: "is the Lux header there?")
         self._hero = {"kicker": "NO TRACKS YET", "title": "Drop a song to begin", "artist": "",
-                      "Length": "–", "Speed": "100%", "Pitch": "0 st"}
+                      "Length": "–", "Key": "–"}
         self._hero_img = None
         c.bind("<Configure>", lambda e: self._draw_hero())
 
@@ -157,7 +157,7 @@ class LuxLayoutMixin:
         c.create_text(0, 92, text=v["title"], anchor="w", fill=TEXT, font=(disp, 34, "bold"))
         c.create_text(0, 136, text=v["artist"], anchor="w", fill=TEXT2, font=(theme.UI, 12))
         x = w
-        for key in ("Pitch", "Speed", "Length"):       # laid out from the right: Length, Speed, Pitch
+        for key in ("Key", "Length"):                  # laid out from the right: Length | Key
             val_w = c.tk.call("font", "measure", (theme.lux_numeral_family(), 22), v[key])
             lab_w = c.tk.call("font", "measure", (theme.UI, 9, "bold"), key.upper())
             col = max(val_w, lab_w)
@@ -185,9 +185,30 @@ class LuxLayoutMixin:
         else:
             v.update(kicker="NO TRACKS YET", title="Drop a song to begin",
                      artist="Or click Split song to get one from YouTube.", Length="–")
-        v["Speed"] = f"{round(self.speed * 100)}%"
-        v["Pitch"] = lux_semis(self.semis)
+        v["Key"] = self._lux_key()
         self._draw_hero()
+
+    def _lux_key(self):
+        """The song's key (found once per set of tracks, in the background), moved with the pitch."""
+        import keydetect
+        if not self.lanes:
+            return "–"
+        paths = tuple(sorted(lane.track.path for lane in self.lanes))
+        if getattr(self, "_key_for", None) != paths:
+            self._key_for, self._key = paths, None
+            tracks = [lane.track for lane in self.lanes]
+
+            def work():
+                k = keydetect.song_key(tracks)
+                self.root.after(0, lambda: (setattr(self, "_key", k) if self._key_for == paths else None,
+                                            self._update_hero()))
+            import threading
+            threading.Thread(target=work, daemon=True).start()
+        if self._key is None:
+            return "…"
+        if self._key == "":
+            return "–"
+        return keydetect.transpose(self._key, self.semis)
 
     # ----- tracks -----
     def _build_tracks_lux(self, parent):
@@ -198,7 +219,7 @@ class LuxLayoutMixin:
         ruler = ctk.CTkFrame(box, fg_color=BG, height=34, corner_radius=0)
         ruler.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         ruler.grid_columnconfigure(1, weight=1)
-        cnt = ctk.CTkFrame(ruler, fg_color="transparent", width=HEAD_W - 8, height=34)
+        cnt = ctk.CTkFrame(ruler, fg_color="transparent", width=Lane.LUX_HEAD_W + Lane.LUX_INSET - 16, height=34)
         cnt.grid(row=0, column=0, padx=(14, 2))
         cnt.grid_propagate(False)
         cnt.grid_columnconfigure(0, weight=1)
@@ -211,7 +232,7 @@ class LuxLayoutMixin:
         self.compact_btn.grid(row=0, column=1, padx=(0, 4))
         self._style_compact()
         self.ruler = tk.Canvas(ruler, height=30, bg=BG, highlightthickness=0, cursor="xterm")
-        self.ruler.grid(row=0, column=1, sticky="ew", padx=(0, SIDE_W + 16))
+        self.ruler.grid(row=0, column=1, sticky="ew", padx=(0, Lane.LUX_INSET + 8))
         self.ruler.bind("<Configure>", lambda e: self.draw_ruler())
         self.ruler.bind("<Button-1>", self._ruler_press)
         self.ruler.bind("<B1-Motion>", self._ruler_drag)

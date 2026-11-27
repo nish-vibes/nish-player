@@ -12,6 +12,7 @@ import customtkinter as ctk
 
 import engine
 import settings
+import theme
 from theme import *  # noqa: F401,F403
 
 
@@ -42,7 +43,8 @@ class ExportDialog:
 
         body = ctk.CTkFrame(win, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=24, pady=(18, 0))
-        ctk.CTkLabel(body, text="Export", font=font(18, "bold"), text_color=TEXT).pack(anchor="w")
+        ctk.CTkLabel(body, text="Export", font=font(24 if theme.MODE == "lux" else 18, "bold"),
+                     text_color=TEXT).pack(anchor="w")
 
         self._section(body, "WHAT TO EXPORT")
         self.mode = tk.StringVar(value="mix")
@@ -142,6 +144,7 @@ class ExportDialog:
         win.protocol("WM_DELETE_WINDOW", self.close)
         win.bind("<Escape>", lambda e: self.close())
         self.refresh()
+        theme.lux_polish(self.win)        # Lux: JAMM Lux shapes
         self._centre()
         win.after(150, lambda: (win.grab_set() if win.winfo_exists() else None))
 
