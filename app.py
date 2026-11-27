@@ -356,7 +356,7 @@ class App(LayoutMixin, LuxLayoutMixin, TracksMixin, SpeedPitchMixin, ProjectMixi
             self.split_btn.configure(image=icon("check", GREEN, 16), text="Done", border_color=GREEN_BORDER,
                                   text_color=GREEN_TXT)
         elif theme.MODE == "lux":
-            self.split_btn.configure(image=icon("plus", TEXT, 14), text="Split song", border_color=BORDER2,
+            self.split_btn.configure(image=icon("plus", TEXT, 14), text="Import", border_color=BORDER2,
                                      text_color=TEXT)
         else:
             self.split_btn.configure(image=icon("split", ACCENT_SOFT, 18), text="Split",

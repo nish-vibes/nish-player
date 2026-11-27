@@ -230,7 +230,7 @@ class Lane:
         return e.y >= widget.winfo_height() - 5
 
     def _edge_cursor(self, widget, e):
-        widget.configure(cursor="sb_v_double_arrow" if self._near_edge(widget, e) else "")
+        self._cfg(widget, cursor="sb_v_double_arrow" if self._near_edge(widget, e) else "")
 
     def _edge_press(self, widget, e):
         if self._near_edge(widget, e):
@@ -322,7 +322,7 @@ class Lane:
             text = "Volume follows automation"
         else:
             text = f"{int(round(t.volume * 100))}%"
-        self.caption.configure(text=text)
+        self._cfg(self.caption, text=text)
 
     def refresh_v(self):
         pop = self.app.vol_pop
@@ -354,33 +354,48 @@ class Lane:
         self.refresh_buttons()
         self.draw()
 
+    def _cfg(self, w, **kw):
+        """Configure only what changed: hovering in and out of tracks then redraws nothing it
+        doesn't have to (re-styling unchanged buttons made rows redraw and jump on Windows).
+        image=("name", colour, size) builds the icon only when it changes."""
+        cache = self.__dict__.setdefault("_cfg_cache", {})
+        old = cache.setdefault(str(w), {})
+        todo = {k: v for k, v in kw.items() if old.get(k) != v}
+        if not todo:
+            return
+        old.update(todo)
+        if "image" in todo:
+            todo["image"] = icon(*todo["image"])
+        w.configure(**todo)
+
     def refresh_buttons(self):
         for btn, on, cols in ((self.mute_btn, self.track.mute, MUTE_ON),
                               (self.solo_btn, self.track.solo, SOLO_ON)):
-            if on:
-                btn.configure(fg_color=cols[0], border_color=cols[1], text_color=cols[2],
-                              hover_color=cols[0], border_width=1)
-            else:
-                btn.configure(fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT,
-                              hover_color=BTN_HOVER, border_width=1)
             if self.lux:
-                btn.configure(border_width=2 if (on and btn is self.mute_btn) else 0)
-        if self.lux:
-            self.auto_btn.configure(border_width=0)
+                bw = 2 if (on and btn is self.mute_btn) else 0
+            else:
+                bw = 1
+            if on:
+                self._cfg(btn, fg_color=cols[0], border_color=cols[1], text_color=cols[2],
+                          hover_color=cols[0], border_width=bw)
+            else:
+                self._cfg(btn, fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT,
+                          hover_color=BTN_HOVER, border_width=bw)
         bg = SELECTED if self.selected else LANE_BG
         show = self.shows_tools()
         self.refresh_caption()
+        bw = 0 if self.lux else 1
         if self.track.auto_on:
-            self.auto_btn.configure(fg_color=GREEN_BG, border_color=GREEN_BORDER, text_color=GREEN_TXT,
-                                    hover_color=GREEN_BG, state="normal")
+            self._cfg(self.auto_btn, fg_color=GREEN_BG, border_color=GREEN_BORDER, text_color=GREEN_TXT,
+                      hover_color=GREEN_BG, state="normal", border_width=bw)
         elif show or self.compact or self.lux:      # Lux: A is always there
-            self.auto_btn.configure(fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT if self.lux else DIM,
-                                    hover_color=BTN_HOVER, state="normal")
+            self._cfg(self.auto_btn, fg_color=BTN, border_color=BORDER2, text_color=BTN_TXT if self.lux else DIM,
+                      hover_color=BTN_HOVER, state="normal", border_width=bw)
         else:                       # hidden until the mouse is over the lane (keeps its place)
-            self.auto_btn.configure(fg_color=bg, border_color=bg, text_color=bg, hover_color=bg,
-                                    state="disabled", text_color_disabled=bg)
-        self.remove_btn.configure(image=icon("close", DIM if show else bg, 11), state="normal" if show else "disabled",
-                                  hover_color=BTN_HOVER if show else bg)
+            self._cfg(self.auto_btn, fg_color=bg, border_color=bg, text_color=bg, hover_color=bg,
+                      state="disabled", text_color_disabled=bg, border_width=bw)
+        self._cfg(self.remove_btn, image=("close", DIM if show else bg, 11), state="normal" if show else "disabled",
+                  hover_color=BTN_HOVER if show else bg)
 
     def set_silent(self, silent):
         if silent != self.silent:

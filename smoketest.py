@@ -887,6 +887,17 @@ def run(app, out_dir):
         assert app.pitch_val.cget("text") == "−1 st"
         import keydetect
         assert app._hero["Key"] == (keydetect.transpose(key0, -1) if key0 != "–" else "–"), app._hero["Key"]
+        # the key set by hand (as it sounds now, at −1 st), remembered per song, back to automatic
+        app.set_song_key("C major")
+        assert app._hero["Key"] == "C major" and app._manual_key() == "D♭ major", app._manual_key()
+        app.pitch_slider.set(0)
+        app.on_pitch(0)
+        assert app._hero["Key"] == "D♭ major"
+        app.set_song_key("")
+        assert app._manual_key() == "" and app._hero["Key"] == key0
+        app.pitch_slider.set(-1)
+        app.on_pitch(-1)
+        assert app.split_btn.cget("text") == "Import" and app.save_more_btn.winfo_ismapped()
         log(f"ok: Lux header: Length {app._hero['Length']} | Key {key0} (−1 st: {app._hero['Key']})")
         assert app.master_slider.winfo_ismapped() and not app.fader.card.winfo_ismapped()
         app.fader.set_pos(0.5)
@@ -938,6 +949,25 @@ def run(app, out_dir):
         assert app.time_lbl.winfo_ismapped() and app.play_btn.winfo_ismapped()
         yield 0.3
         shot("8d-lux")
+        # moving the pointer over the tracks and the gaps between them leaves every track as it was
+        def geom():
+            return [(ln.frame.winfo_y(), ln.frame.winfo_height(), ln.head.winfo_width(), ln.canvas.winfo_width(),
+                     ln.vol.winfo_ismapped(), ln.mute_btn.winfo_ismapped(), ln.auto_btn.winfo_ismapped())
+                    for ln in app.lanes]
+        before = geom()
+        r = app.root
+        for ln in app.lanes:
+            for fx in (0.1, 0.3, 0.6):
+                x = ln.frame.winfo_rootx() - r.winfo_rootx() + int(ln.frame.winfo_width() * fx)
+                for dy in (-6, -3, 2, ln.frame.winfo_height() - 4, ln.frame.winfo_height() + 3):
+                    y = ln.frame.winfo_rooty() - r.winfo_rooty() + dy
+                    r.event_generate("<Motion>", warp=True, x=x, y=y)
+                    r.update()
+                    yield 0.02
+        yield 0.3
+        shot("8d-lux-hover")
+        after = geom()
+        assert before == after, f"tracks changed under the pointer:\n{before}\n{after}"
         app.open_export()
         yield 0.6
         shot("8e-lux-export")

@@ -10,6 +10,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 import engine
+import settings
 import theme
 from theme import *  # noqa: F401,F403
 from widgets import ForkSwitch, MasterFader, ctrl_reset, hover_hint
@@ -101,9 +102,16 @@ class LuxLayoutMixin:
                                         height=40, corner_radius=14, fg_color="transparent",
                                         hover_color=BTN_HOVER, command=self.open_recent)
         self.recent_btn.pack(side="left")
-        self.save_btn = quiet(right, "Save", lambda: self.save_project(), width=60)
-        self.save_btn.pack(side="left", padx=(4, 12))
-        self.split_btn = ctk.CTkButton(right, text="Split song", image=icon("plus", TEXT, 14), compound="left",
+        savebox = ctk.CTkFrame(right, fg_color="transparent")
+        savebox.pack(side="left", padx=(4, 12))
+        self.save_btn = quiet(savebox, "Save", lambda: self.save_project(), width=56)
+        self.save_btn.pack(side="left")
+        self.save_more_btn = ctk.CTkButton(savebox, text="", image=icon("chevron", ACCENT_SOFT, 12), width=28,
+                                           height=40, corner_radius=14, fg_color="transparent",
+                                           hover_color=BTN_HOVER, command=self.save_menu)
+        self.save_more_btn.pack(side="left")
+        hover_hint(self.save_more_btn, "Save as…  ·  Ctrl+Shift+S")
+        self.split_btn = ctk.CTkButton(right, text="Import", image=icon("plus", TEXT, 14), compound="left",
                                        command=self.open_split, height=44, corner_radius=22, width=0,
                                        fg_color=BTN, hover_color=BTN_HOVER, text_color=TEXT,
                                        font=font(14, "bold"))
@@ -118,12 +126,39 @@ class LuxLayoutMixin:
                                      command=self.open_settings)
         self.cog_btn.pack(side="left", padx=(8, 0))
         for b, tip in ((self.open_btn, "Open project  ·  Ctrl+O"), (self.save_btn, "Save project  ·  Ctrl+S"),
-                       (self.split_btn, "Split a song from YouTube or a file"),
+                       (self.split_btn, "Import a song from YouTube or your computer, and split it"),
                        (self.export_btn, "Export the mix or each track"), (self.cog_btn, "Settings and updates")):
             hover_hint(b, tip)
         self.settings_pop = None
         self._style_cog()
         ctk.CTkFrame(self.root, fg_color=SEPARATOR, height=1, corner_radius=0).grid(row=0, column=0, sticky="sew")
+
+    def _popup(self, items, x, y):
+        """A small menu in Lux colours: items = [(label, command) | None for a line]."""
+        m = tk.Menu(self.root, tearoff=0, bg=POPOVER, fg=TEXT, activebackground=BTN_HOVER, activeforeground=TEXT,
+                    bd=0, font=(theme.UI, 10))
+        for it in items:
+            if it is None:
+                m.add_separator()
+            elif isinstance(it[1], list):
+                sub_m = tk.Menu(m, tearoff=0, bg=POPOVER, fg=TEXT, activebackground=BTN_HOVER,
+                                activeforeground=TEXT, bd=0, font=(theme.UI, 10))
+                for lab, cmd in it[1]:
+                    sub_m.add_command(label=lab, command=cmd)
+                m.add_cascade(label=it[0], menu=sub_m)
+            else:
+                m.add_command(label=it[0], command=it[1])
+        try:
+            m.tk_popup(x, y)
+        finally:
+            m.grab_release()
+        return m
+
+    def save_menu(self):
+        b = self.save_btn
+        self._popup([("Save  ·  Ctrl+S", lambda: self.save_project()),
+                     ("Save as…  ·  Ctrl+Shift+S", lambda: self.save_project(save_as=True))],
+                    b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
 
     # ----- song header -----
     def _build_hero(self, parent):
@@ -158,12 +193,21 @@ class LuxLayoutMixin:
         c.create_text(0, 136, text=v["artist"], anchor="w", fill=TEXT2, font=(theme.UI, 12))
         x = w
         for key in ("Key", "Length"):                  # laid out from the right: Length | Key
-            val_w = c.tk.call("font", "measure", (theme.lux_numeral_family(), 22), v[key])
-            lab_w = c.tk.call("font", "measure", (theme.UI, 9, "bold"), key.upper())
+            # the key can be set by hand: click it
+            text = v[key] + ("  ▾" if key == "Key" and getattr(self, "lanes", None) else "")
+            val_w = c.tk.call("font", "measure", (theme.lux_numeral_family(), 22), text)
+            label_text = "KEY · SET BY YOU" if key == "Key" and self._manual_key() else key.upper()
+            lab_w = c.tk.call("font", "measure", (theme.UI, 9, "bold"), label_text)
             col = max(val_w, lab_w)
-            c.create_text(x - col, 104, text=key.upper(), anchor="w", fill=ACCENT_SOFT, font=(theme.UI, 9, "bold"))
-            c.create_text(x - col, 132, text=v[key], anchor="w", fill=TEXT, font=(theme.lux_numeral_family(), 22))
+            tags = ("key",) if key == "Key" else ()
+            c.create_text(x - col, 104, text=label_text, anchor="w", fill=ACCENT_SOFT, font=(theme.UI, 9, "bold"),
+                          tags=tags)
+            c.create_text(x - col, 132, text=text, anchor="w", fill=TEXT, font=(theme.lux_numeral_family(), 22),
+                          tags=tags)
             x -= col + 40
+        c.tag_bind("key", "<Button-1>", lambda e: self.key_menu(e.x_root, e.y_root))
+        c.tag_bind("key", "<Enter>", lambda e: c.configure(cursor="hand2"))
+        c.tag_bind("key", "<Leave>", lambda e: c.configure(cursor=""))
 
     def _update_hero(self):
         c = getattr(self, "hero_title", None)
@@ -188,11 +232,52 @@ class LuxLayoutMixin:
         v["Key"] = self._lux_key()
         self._draw_hero()
 
+    # ----- the key: found automatically, or set by hand (remembered per song) -----
+    def _song_id(self):
+        if not getattr(self, "lanes", None):
+            return ""
+        return (engine.song_name([lane.track.path for lane in self.lanes]) or "").lstrip("~").strip()
+
+    def _manual_key(self):
+        """The key set by hand for this song (at its original pitch), or ""."""
+        sid = self._song_id()
+        return (settings.get("song_keys") or {}).get(sid, "") if sid else ""
+
+    def set_song_key(self, key):
+        """Set the key by hand as it sounds now (with the pitch setting); "" = find it automatically."""
+        import keydetect
+        sid = self._song_id()
+        if not sid:
+            return
+        keys = dict(settings.get("song_keys") or {})
+        if key:
+            keys[sid] = keydetect.transpose(key, -self.semis)     # stored at the original pitch
+        else:
+            keys.pop(sid, None)
+        settings.put("song_keys", keys)
+        self._update_hero()
+
+    def key_menu(self, x, y):
+        import keydetect
+        if not self.lanes:
+            return
+        items = [("Major", [(f"{n} major", lambda k=f"{n} major": self.set_song_key(k))
+                            for n in keydetect.MAJOR_NAMES]),
+                 ("Minor", [(f"{n} minor", lambda k=f"{n} minor": self.set_song_key(k))
+                            for n in keydetect.MINOR_NAMES])]
+        if self._manual_key():
+            items += [None, ("Find the key automatically", lambda: self.set_song_key(""))]
+        self._popup(items, x, y)
+
     def _lux_key(self):
-        """The song's key (found once per set of tracks, in the background), moved with the pitch."""
+        """The song's key (set by hand, or found once per set of tracks in the background), moved with
+        the pitch."""
         import keydetect
         if not self.lanes:
             return "–"
+        manual = self._manual_key()
+        if manual:
+            return keydetect.transpose(manual, self.semis)
         paths = tuple(sorted(lane.track.path for lane in self.lanes))
         if getattr(self, "_key_for", None) != paths:
             self._key_for, self._key = paths, None
