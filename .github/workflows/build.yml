@@ -6,6 +6,11 @@ on:
     # v2 = the 2.0 work: built and tested, but never published as a release.
     branches: [main, "release/**", v2]
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Also ship this build as a pre-release with this tag (e.g. v2.2.0-beta.1). Empty: just build."
+        required: false
+        default: ""
   schedule:
     # Every 6 hours: if there is a new yt-dlp (it follows YouTube's changes), build and test it and
     # publish it in the app update (~3 MB, apppack.py) and the YouTube pack for 2.0 (ytpack.py).
@@ -255,6 +260,19 @@ jobs:
           name: NiSHPlayer-windows
           path: NiSHPlayer-windows.zip
           retention-days: 7
+
+      # A pre-release, by hand (Run workflow, with a tag): for testing a branch's build. The app's
+      # updates look only at the latest full release and the app-update/youtube-pack releases, so
+      # users never get a pre-release.
+      - name: Publish pre-release (by hand)
+        if: github.event_name == 'workflow_dispatch' && inputs.prerelease != ''
+        shell: bash
+        env:
+          TAG: ${{ inputs.prerelease }}
+        run: |
+          NOTES="Test build from the ${GITHUB_REF_NAME} branch ($(git rev-parse --short HEAD)). Not an update: the app never installs pre-releases by itself. Download NiSHPlayer-windows.zip, unzip it and start NiSH Player from that folder."
+          gh release create "$TAG" NiSHPlayer-windows.zip --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+            --target "$GITHUB_SHA" --title "NiSH Player $TAG (pre-release)" --notes "$NOTES"
 
       - name: Publish release
         if: steps.rel.outputs.full == 'true'
